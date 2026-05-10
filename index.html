@@ -25,7 +25,7 @@
     .pill{display:inline-flex;align-items:center;gap:5px;padding:4px 12px;border-radius:20px;font-size:11px;font-weight:600;}
     .modal-ov{position:fixed;inset:0;background:rgba(28,28,46,0.55);display:flex;align-items:center;justify-content:center;z-index:200;padding:20px;backdrop-filter:blur(3px);}
     .modal-box{background:white;border-radius:20px;width:100%;max-width:480px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(28,28,46,0.2);}
-    @media(max-width:768px){.sidebar{position:relative;width:100%;height:auto;flex-direction:row;flex-wrap:wrap;}.main-content{margin-left:0;}}
+    .mobile-nav{position:fixed;bottom:0;left:0;right:0;background:#1C1C2E;border-top:1px solid rgba(255,255,255,0.1);z-index:50;justify-content:space-around;padding:8px 4px 22px;} .mob-btn{display:flex;flex-direction:column;align-items:center;gap:3px;background:transparent;border:none;color:rgba(255,255,255,0.5);font-size:10px;font-weight:600;font-family:'Inter',sans-serif;cursor:pointer;padding:4px 10px;} .mob-btn.active{color:#F48FB1;} @media(max-width:768px){.sidebar{display:none;}.main-content{margin-left:0;width:100%;padding-bottom:80px;}.login-left{display:none;}.mobile-nav{display:flex;}} @media(min-width:769px){.mobile-nav{display:none;}}
   </style>
 </head>
 <body>
@@ -190,7 +190,7 @@ function LoginScreen(props) {
     <div style={{minHeight:"100vh",display:"flex",background:"#0D1B2A"}}>
 
       {/* ── Left warehouse panel ── */}
-      <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+      <div className="login-left" style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
 
         {/* Centred title block */}
         <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"32px 28px",textAlign:"center"}}>
@@ -249,7 +249,7 @@ function LoginScreen(props) {
       </div>
 
       {/* ── Right login panel ── */}
-      <div style={{width:340,background:"white",display:"flex",flexDirection:"column",justifyContent:"center",padding:"40px 32px",flexShrink:0}}>
+      <div style={{width:340,maxWidth:"100%",background:"white",display:"flex",flexDirection:"column",justifyContent:"center",padding:"40px 32px",flexShrink:0}}>
         <div style={{textAlign:"center",marginBottom:20}}>
           <img src={LOGO} alt="beyond OTIF" style={{height:72,objectFit:"contain"}}/>
         </div>
@@ -765,7 +765,7 @@ function App() {
 
         </div>
 
-        <div style={{padding:"14px 28px",borderTop:"1px solid #F0EDF5",background:"white",display:"flex",justifyContent:"space-between",fontSize:11,color:GRAY}}>
+        <div className="mobile-nav">   {[{id:"amc",label:"AMC",icon:"⚙"},{id:"licenses",label:"Licenses",icon:"📋"},{id:"quality",label:"Quality",icon:"✓"},{id:"alerts",label:"Alerts",icon:"🔔"}].map(function(item){return(<button key={item.id} className={"mob-btn"+(tab===item.id?" active":"")} onClick={function(){setTab(item.id);setFilter("All");}}><span style={{fontSize:22}}>{item.icon}</span><span>{item.label}</span></button>);})} </div>
           <span>ICH Integrated Central Hub · Indore</span>
           <span>{todayLong()}</span>
         </div>

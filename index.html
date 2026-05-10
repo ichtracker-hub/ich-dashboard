@@ -14,7 +14,7 @@
     input,textarea,button{font-family:'Inter',sans-serif;outline:none;}
     button{cursor:pointer;}
     .sidebar{position:fixed;left:0;top:0;bottom:0;width:230px;background:#1C1C2E;display:flex;flex-direction:column;z-index:50;overflow-y:auto;}
-    .main-content{margin-left:230px;min-height:100vh;display:flex;flex-direction:column;}
+    .main-content{margin-left:230px;min-height:100vh;display:flex;flex-direction:column;flex:1;width:calc(100% - 230px);}
     .nav-btn{width:100%;display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:8px;background:transparent;border:1px solid transparent;color:#FFFFFF;font-size:13px;font-weight:500;cursor:pointer;text-align:left;font-family:'Inter',sans-serif;margin-bottom:3px;transition:background 0.15s;}
     .nav-btn.active{background:rgba(194,24,91,0.2);border:1px solid rgba(194,24,91,0.35);color:#F48FB1;font-weight:700;}
     .nav-btn:hover:not(.active){background:rgba(255,255,255,0.07);}

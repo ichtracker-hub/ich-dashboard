@@ -1,0 +1,861 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+  <title>ICH · Integrated Central Hub</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box;}
+    html,body,#root{height:100%;}
+    body{font-family:'Inter',sans-serif;background:#F4F6FB;overflow-x:hidden;}
+    input,textarea,select,button{font-family:'Inter',sans-serif;outline:none;}
+    button{cursor:pointer;}
+    .pill{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;}
+    .card{background:white;border-radius:12px;box-shadow:0 1px 6px rgba(28,28,46,0.07);margin-bottom:10px;overflow:hidden;transition:box-shadow 0.2s;}
+    .card:hover{box-shadow:0 4px 18px rgba(28,28,46,0.11);}
+    .card-hdr{display:flex;align-items:center;gap:10px;cursor:pointer;padding:14px 16px;}
+    .card-body{padding:0 16px 14px;border-top:1px solid #F4F6FB;}
+    .modal-ov{position:fixed;inset:0;background:rgba(28,28,46,0.6);display:flex;align-items:center;justify-content:center;z-index:300;padding:16px;backdrop-filter:blur(4px);}
+    .modal-box{background:white;border-radius:20px;width:100%;max-width:490px;max-height:92vh;overflow-y:auto;box-shadow:0 20px 60px rgba(28,28,46,0.25);}
+    /* Desktop */
+    .d-sidebar{position:fixed;left:0;top:0;bottom:0;width:230px;background:#1C1C2E;display:flex;flex-direction:column;z-index:50;overflow-y:auto;}
+    .d-main{margin-left:230px;min-height:100vh;display:flex;flex-direction:column;width:calc(100% - 230px);}
+    .d-nav-btn{width:100%;display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;background:transparent;border:1px solid transparent;color:#fff;font-size:13px;font-weight:500;cursor:pointer;text-align:left;margin-bottom:2px;transition:background 0.15s;}
+    .d-nav-btn.active{background:rgba(194,24,91,0.2);border-color:rgba(194,24,91,0.35);color:#F48FB1;font-weight:700;}
+    .d-nav-btn:hover:not(.active){background:rgba(255,255,255,0.07);}
+    /* Mobile */
+    .m-wrap{display:flex;flex-direction:column;min-height:100vh;}
+    .m-topbar{position:sticky;top:0;z-index:50;background:#1C1C2E;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;}
+    .m-content{flex:1;padding:12px 12px 82px;}
+    .m-bottom{position:fixed;bottom:0;left:0;right:0;background:#1C1C2E;border-top:1px solid rgba(255,255,255,0.1);display:flex;justify-content:space-around;padding:8px 0 calc(8px + env(safe-area-inset-bottom));z-index:50;}
+    .m-tab{display:flex;flex-direction:column;align-items:center;gap:2px;background:transparent;border:none;color:rgba(255,255,255,0.45);font-size:9px;font-weight:600;cursor:pointer;padding:4px 14px;letter-spacing:0.03em;}
+    .m-tab.active{color:#F48FB1;}
+    .m-tab-icon{font-size:20px;line-height:1.2;}
+    /* Login */
+    .login-left{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+    @media(max-width:640px){.login-left{display:none!important;}.login-right{width:100%!important;max-width:100%!important;padding:32px 24px!important;}}
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+var useState  = React.useState;
+var useEffect = React.useEffect;
+var useRef    = React.useRef;
+
+/* ── CONFIG ── */
+var SHEET_ID = "13cTQU5vA_go5gIwVe4CaxgtfZosxvIUH9RsptoxVC_8";
+var API_URL  = "https://script.google.com/macros/s/AKfycbxf4MT0tUFvWw1cD_hvinFYQ0pZet1Hgfv5cNl44BsUSDGXnLUGfd9uPrrr-2qdT0VBtg/exec";
+var NAVY="#1C1C2E"; var PINK="#C2185B"; var LPINK="#F48FB1"; var GRAY="#6B7280"; var LGRAY="#F4F6FB";
+
+var USERS = {
+  "POSH.ICH":  {pass:"POSH@123",  role:"staff",   name:"Staff User"},
+  "ADMIN.ICH": {pass:"ICH@123",   role:"manager", name:"Hub Manager"},
+  "RDM.ICH":   {pass:"RDM@123",   role:"rdm",     name:"RDM"},
+  "VIEW.ICH":  {pass:"VIEW@123",  role:"viewer",  name:"Viewer"}
+};
+
+var STATUS_MAP = {
+  "Pending":{"bg":"#FEF3C7","c":"#92400E"},
+  "Planned":{"bg":"#DBEAFE","c":"#1E40AF"},
+  "Submitted":{"bg":"#F3E8FF","c":"#6B21A8"},
+  "Validated":{"bg":"#DCFCE7","c":"#166534"},
+  "Completed":{"bg":"#D1FAE5","c":"#065F46"},
+  "Overdue":{"bg":"#FEE2E2","c":"#991B1B"},
+  "Active":{"bg":"#D1FAE5","c":"#065F46"},
+  "Expiring Soon":{"bg":"#FEF3C7","c":"#92400E"},
+  "Expired":{"bg":"#FEE2E2","c":"#991B1B"},
+  "Done":{"bg":"#D1FAE5","c":"#065F46"},
+};
+
+/* ── UTILS ── */
+function parseGDate(v){
+  if(!v)return null;
+  var m=String(v).match(/Date\((\d+)\)/);
+  if(m)return new Date(parseInt(m[1]));
+  var d=new Date(v);
+  return isNaN(d)?null:d;
+}
+function fmtDate(v){
+  var d=parseGDate(v);
+  if(!d)return v||"—";
+  return d.toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"});
+}
+function daysUntil(v){
+  var d=parseGDate(v);
+  if(!d)return null;
+  return Math.round((d-Date.now())/86400000);
+}
+function todayLong(){
+  return new Date().toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
+}
+function todayShort(){
+  return new Date().toLocaleDateString("en-IN",{day:"2-digit",month:"short"});
+}
+
+/* ── DATA FETCH ── */
+function buildGViz(sheetName){
+  return "https://docs.google.com/spreadsheets/d/"+SHEET_ID+"/gviz/tq?tqx=out:json&sheet="+encodeURIComponent(sheetName);
+}
+async function fetchSheet(sheetName){
+  try{
+    var r=await fetch(buildGViz(sheetName));
+    var t=await r.text();
+    var json=JSON.parse(t.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\)/)[1]);
+    var cols=json.table.cols.map(function(c){return c.label;});
+    return (json.table.rows||[]).map(function(row){
+      var obj={};
+      cols.forEach(function(col,i){
+        var cell=row.c&&row.c[i];
+        obj[col]=cell?cell.v:null;
+      });
+      return obj;
+    });
+  }catch(e){return [];}
+}
+async function postUpdate(payload){
+  try{
+    await fetch(API_URL,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+    return true;
+  }catch(e){return false;}
+}
+
+/* ── BADGE ── */
+function Badge(p){
+  var s=STATUS_MAP[p.status]||{bg:"#E5E7EB",c:"#374151"};
+  return React.createElement("span",{className:"pill",style:{background:s.bg,color:s.c}},p.status);
+}
+
+/* ── KPI STRIP ── */
+function KpiStrip(p){
+  var items=p.items;
+  return React.createElement("div",{style:{display:"flex",gap:8,flexWrap:"wrap",padding:p.mobile?"0 0 10px":"0 0 14px"}},
+    items.map(function(item,i){
+      return React.createElement("div",{key:i,style:{background:"white",borderRadius:10,padding:"10px 14px",flex:p.mobile?"1 1 calc(50% - 4px)":"1",minWidth:80,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}},
+        React.createElement("div",{style:{fontSize:20,fontWeight:800,color:item.color||NAVY}},item.value),
+        React.createElement("div",{style:{fontSize:10,color:GRAY,marginTop:2,fontWeight:500}},item.label)
+      );
+    })
+  );
+}
+
+/* ── FILTER BAR ── */
+function FilterBar(p){
+  var options=p.options; var val=p.value;
+  return React.createElement("div",{style:{display:"flex",gap:6,overflowX:"auto",paddingBottom:4,marginBottom:10}},
+    options.map(function(opt){
+      var active=val===opt;
+      return React.createElement("button",{
+        key:opt,
+        onClick:function(){p.onChange(opt);},
+        style:{
+          flexShrink:0,padding:"5px 12px",borderRadius:20,border:"1px solid "+(active?"#C2185B":"#E5E7EB"),
+          background:active?"#C2185B":"white",color:active?"white":GRAY,
+          fontSize:12,fontWeight:active?700:500,cursor:"pointer",whiteSpace:"nowrap"
+        }
+      },opt);
+    })
+  );
+}
+
+/* ── MODAL ── */
+function Modal(p){
+  useEffect(function(){
+    document.body.style.overflow="hidden";
+    return function(){document.body.style.overflow="";};
+  },[]);
+  return React.createElement("div",{className:"modal-ov",onClick:function(e){if(e.target===e.currentTarget)p.onClose();}},
+    React.createElement("div",{className:"modal-box"},p.children)
+  );
+}
+
+/* ── STATUS TIMELINE ── */
+function Timeline(p){
+  var steps=["Pending","Planned","Submitted","Validated","Completed"];
+  var cur=steps.indexOf(p.status);
+  if(cur<0)cur=0;
+  return React.createElement("div",{style:{display:"flex",alignItems:"center",gap:0,margin:"12px 0",overflowX:"auto"}},
+    steps.map(function(s,i){
+      var done=i<=cur;
+      var isLast=i===steps.length-1;
+      return React.createElement("div",{key:s,style:{display:"flex",alignItems:"center",flex:isLast?undefined:1}},
+        React.createElement("div",{style:{display:"flex",flexDirection:"column",alignItems:"center",gap:3}},
+          React.createElement("div",{style:{
+            width:24,height:24,borderRadius:"50%",
+            background:done?"#C2185B":"#E5E7EB",
+            display:"flex",alignItems:"center",justifyContent:"center",
+            fontSize:11,color:done?"white":GRAY,fontWeight:700,flexShrink:0
+          }},done?"✓":i+1),
+          React.createElement("div",{style:{fontSize:8,color:done?"#C2185B":GRAY,fontWeight:done?700:400,textAlign:"center",whiteSpace:"nowrap"}},s)
+        ),
+        !isLast&&React.createElement("div",{style:{flex:1,height:2,background:i<cur?"#C2185B":"#E5E7EB",minWidth:12}})
+      );
+    })
+  );
+}
+
+/* ── AMC CARD ── */
+function AmcCard(p){
+  var row=p.row; var role=p.role;
+  var [open,setOpen]=useState(false);
+  var [showModal,setShowModal]=useState(false);
+  var [action,setAction]=useState(""); // "submit","validate","approve","sendback","complete"
+  var [evidFile,setEvidFile]=useState(null);
+  var [evidNote,setEvidNote]=useState("");
+  var [sendNote,setSendNote]=useState("");
+  var [busy,setBusy]=useState(false);
+
+  var days=daysUntil(row["Next Maintenance Date"]||row["Contract Expiry"]);
+  var statusColor=(days!==null&&days<0)||(row["Status"]==="Overdue")?"#991B1B":days!==null&&days<30?"#92400E":"#065F46";
+
+  function handleAction(){
+    setBusy(true);
+    var payload={
+      action:"updateAMC",
+      rowId:row["_rowNum"]||row["Row"],
+      currentStatus:row["Status"],
+      nextAction:action,
+      evidence:evidFile?evidFile.name:"",
+      note:action==="sendback"?sendNote:evidNote,
+      updatedBy:p.userName,
+      timestamp:new Date().toISOString()
+    };
+    postUpdate(payload).then(function(){
+      setBusy(false);
+      setShowModal(false);
+      p.onRefresh();
+    });
+  }
+
+  var canSubmit = role==="staff" && (row["Status"]==="Pending"||row["Status"]==="Planned"||row["Status"]==="Sent Back");
+  var canValidate = role==="manager" && row["Status"]==="Submitted";
+  var canApprove = role==="rdm" && row["Status"]==="Validated";
+
+  return React.createElement("div",{className:"card"},
+    React.createElement("div",{className:"card-hdr",onClick:function(){setOpen(!open);}},
+      React.createElement("div",{style:{
+        width:36,height:36,borderRadius:8,background:"rgba(194,24,91,0.1)",
+        display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0
+      }},"⚙"),
+      React.createElement("div",{style:{flex:1,minWidth:0}},
+        React.createElement("div",{style:{fontWeight:700,fontSize:13,color:NAVY,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},
+          row["Equipment Name"]||row["Activity"]||"—"
+        ),
+        React.createElement("div",{style:{fontSize:11,color:GRAY,marginTop:2}},
+          row["Vendor/Contractor"]||row["Vendor"]||"—"
+        )
+      ),
+      React.createElement(Badge,{status:row["Status"]||"Pending"}),
+      React.createElement("span",{style:{fontSize:12,marginLeft:6,color:open?PINK:GRAY}},open?"▲":"▼")
+    ),
+    open&&React.createElement("div",{className:"card-body"},
+      row["Status"]&&React.createElement(Timeline,{status:row["Status"]}),
+      React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}},
+        [
+          ["Contract Ref",row["Contract Ref"]||row["AMC Ref"]],
+          ["Next Date",fmtDate(row["Next Maintenance Date"]||row["Planned Date"])],
+          ["Due Days",days!==null?React.createElement("span",{style:{color:statusColor,fontWeight:700}},(days<0?"Overdue ":"Due in ")+Math.abs(days)+"d"):"—"],
+          ["Amount",row["AMC Amount"]?("₹"+Number(row["AMC Amount"]).toLocaleString("en-IN")):"—"],
+          ["Evidence",row["Evidence Submitted"]||"—"],
+          ["Last Updated",fmtDate(row["Last Updated"])||"—"],
+        ].map(function(item,i){
+          return React.createElement("div",{key:i},
+            React.createElement("div",{style:{fontSize:10,color:GRAY,marginBottom:2,fontWeight:500}},item[0]),
+            React.createElement("div",{style:{fontSize:12,fontWeight:600,color:NAVY}},item[1]||"—")
+          );
+        })
+      ),
+      row["Remarks"]&&React.createElement("div",{style:{fontSize:11,color:GRAY,padding:"8px 10px",background:LGRAY,borderRadius:8,marginBottom:10}},
+        React.createElement("b",null,"Remarks: "),row["Remarks"]
+      ),
+      /* Action buttons */
+      React.createElement("div",{style:{display:"flex",gap:8,flexWrap:"wrap"}},
+        canSubmit&&React.createElement("button",{
+          onClick:function(){setAction("submit");setShowModal(true);},
+          style:{flex:1,padding:"9px 0",background:PINK,color:"white",border:"none",borderRadius:8,fontWeight:700,fontSize:13}
+        },"📎 Submit Evidence"),
+        canValidate&&React.createElement("button",{
+          onClick:function(){setAction("validate");setShowModal(true);},
+          style:{padding:"9px 16px",background:"#2563EB",color:"white",border:"none",borderRadius:8,fontWeight:700,fontSize:13}
+        },"✓ Validate"),
+        canValidate&&React.createElement("button",{
+          onClick:function(){setAction("sendback");setShowModal(true);},
+          style:{padding:"9px 16px",background:"#F59E0B",color:"white",border:"none",borderRadius:8,fontWeight:700,fontSize:13}
+        },"↩ Send Back"),
+        canApprove&&React.createElement("button",{
+          onClick:function(){setAction("approve");setShowModal(true);},
+          style:{flex:1,padding:"9px 0",background:"#059669",color:"white",border:"none",borderRadius:8,fontWeight:700,fontSize:13}
+        },"✅ Approve & Close")
+      )
+    ),
+    /* MODAL */
+    showModal&&React.createElement(Modal,{onClose:function(){setShowModal(false);}},
+      React.createElement("div",{style:{padding:24}},
+        React.createElement("div",{style:{fontWeight:800,fontSize:16,color:NAVY,marginBottom:4}},
+          action==="submit"?"Submit Evidence":action==="validate"?"Validate Task":action==="sendback"?"Send Back":action==="approve"?"Approve & Close":"Action"
+        ),
+        React.createElement("div",{style:{fontSize:12,color:GRAY,marginBottom:18}},row["Equipment Name"]||row["Activity"]),
+        action==="submit"&&React.createElement("div",null,
+          React.createElement("label",{style:{fontSize:12,color:GRAY,fontWeight:600,display:"block",marginBottom:6}},"Upload Evidence File"),
+          React.createElement("input",{
+            type:"file",
+            onChange:function(e){setEvidFile(e.target.files[0]);},
+            style:{display:"block",width:"100%",marginBottom:12,fontSize:13,padding:"8px",border:"1px solid #E5E7EB",borderRadius:8}
+          }),
+          evidFile&&React.createElement("div",{style:{fontSize:11,color:"#059669",marginBottom:10,padding:"6px 10px",background:"#D1FAE5",borderRadius:6}},
+            "✓ "+evidFile.name
+          ),
+          React.createElement("label",{style:{fontSize:12,color:GRAY,fontWeight:600,display:"block",marginBottom:6}},"Completion Note"),
+          React.createElement("textarea",{
+            value:evidNote,onChange:function(e){setEvidNote(e.target.value);},
+            placeholder:"Optional note...",
+            style:{width:"100%",border:"1px solid #E5E7EB",borderRadius:8,padding:10,fontSize:13,resize:"none",height:80}
+          })
+        ),
+        action==="validate"&&React.createElement("div",null,
+          React.createElement("p",{style:{fontSize:13,color:NAVY,marginBottom:12}},"Confirm this task has been reviewed and evidence is valid."),
+          React.createElement("label",{style:{fontSize:12,color:GRAY,fontWeight:600,display:"block",marginBottom:6}},"Validation Note"),
+          React.createElement("textarea",{
+            value:evidNote,onChange:function(e){setEvidNote(e.target.value);},
+            placeholder:"Optional note...",
+            style:{width:"100%",border:"1px solid #E5E7EB",borderRadius:8,padding:10,fontSize:13,resize:"none",height:80}
+          })
+        ),
+        action==="sendback"&&React.createElement("div",null,
+          React.createElement("label",{style:{fontSize:12,color:GRAY,fontWeight:600,display:"block",marginBottom:6}},"Reason for Sending Back *"),
+          React.createElement("textarea",{
+            value:sendNote,onChange:function(e){setSendNote(e.target.value);},
+            placeholder:"Describe what needs to be fixed...",
+            style:{width:"100%",border:"1px solid #E5E7EB",borderRadius:8,padding:10,fontSize:13,resize:"none",height:100}
+          })
+        ),
+        action==="approve"&&React.createElement("div",null,
+          React.createElement("p",{style:{fontSize:13,color:NAVY,marginBottom:12}},"This will close the task and mark it Completed. Proceed?"),
+          React.createElement("label",{style:{fontSize:12,color:GRAY,fontWeight:600,display:"block",marginBottom:6}},"RDM Sign-off Note"),
+          React.createElement("textarea",{
+            value:evidNote,onChange:function(e){setEvidNote(e.target.value);},
+            placeholder:"Optional sign-off note...",
+            style:{width:"100%",border:"1px solid #E5E7EB",borderRadius:8,padding:10,fontSize:13,resize:"none",height:80}
+          })
+        ),
+        React.createElement("div",{style:{display:"flex",gap:10,marginTop:16}},
+          React.createElement("button",{
+            onClick:function(){setShowModal(false);},
+            style:{flex:1,padding:"10px 0",border:"1px solid #E5E7EB",borderRadius:8,background:"white",fontWeight:600,fontSize:13,color:GRAY}
+          },"Cancel"),
+          React.createElement("button",{
+            onClick:handleAction,
+            disabled:busy||(action==="sendback"&&!sendNote.trim()),
+            style:{
+              flex:2,padding:"10px 0",borderRadius:8,border:"none",fontWeight:700,fontSize:13,
+              background:action==="sendback"?"#F59E0B":action==="validate"?"#2563EB":action==="approve"?"#059669":PINK,
+              color:"white",opacity:busy?0.6:1
+            }
+          },busy?"Processing…":action==="submit"?"Submit":action==="validate"?"Validate":action==="sendback"?"Send Back":"Approve")
+        )
+      )
+    )
+  );
+}
+
+/* ── LICENSE CARD ── */
+function LicCard(p){
+  var row=p.row;
+  var [open,setOpen]=useState(false);
+  var days=daysUntil(row["Expiry Date"]);
+  var sts=days===null?"—":days<0?"Expired":days<30?"Expiring Soon":"Active";
+
+  return React.createElement("div",{className:"card"},
+    React.createElement("div",{className:"card-hdr",onClick:function(){setOpen(!open);}},
+      React.createElement("div",{style:{width:36,height:36,borderRadius:8,background:"rgba(37,99,235,0.1)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}},"📋"),
+      React.createElement("div",{style:{flex:1,minWidth:0}},
+        React.createElement("div",{style:{fontWeight:700,fontSize:13,color:NAVY,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},row["License Name"]||"—"),
+        React.createElement("div",{style:{fontSize:11,color:GRAY,marginTop:2}},row["Issuing Authority"]||"—")
+      ),
+      React.createElement(Badge,{status:sts}),
+      React.createElement("span",{style:{fontSize:12,marginLeft:6,color:open?PINK:GRAY}},open?"▲":"▼")
+    ),
+    open&&React.createElement("div",{className:"card-body"},
+      React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginTop:4}},
+        [
+          ["License No",row["License Number"]||row["Reg No"]],
+          ["Category",row["Category"]||row["Type"]],
+          ["Issue Date",fmtDate(row["Issue Date"])],
+          ["Expiry Date",fmtDate(row["Expiry Date"])],
+          ["Days Left",days!==null?React.createElement("span",{style:{color:days<0?"#991B1B":days<30?"#92400E":"#065F46",fontWeight:700}},(days<0?"Expired ":"")+Math.abs(days)+"d"):"—"],
+          ["Renewal By",row["Renewal Owner"]||"—"],
+        ].map(function(item,i){
+          return React.createElement("div",{key:i},
+            React.createElement("div",{style:{fontSize:10,color:GRAY,marginBottom:2,fontWeight:500}},item[0]),
+            React.createElement("div",{style:{fontSize:12,fontWeight:600,color:NAVY}},item[1]||"—")
+          );
+        })
+      )
+    )
+  );
+}
+
+/* ── QUALITY SECTION ── */
+function QualitySection(p){
+  var data=p.data; var role=p.role; var mobile=p.mobile;
+
+  var daily=(data.daily||[]).slice(0,5);
+  var fortnightly=(data.fortnightly||[]).slice(0,5);
+  var training=(data.training||[]).slice(0,5);
+
+  function Section(title,items,icon){
+    return React.createElement("div",{style:{marginBottom:14}},
+      React.createElement("div",{style:{fontWeight:700,fontSize:13,color:NAVY,marginBottom:8,display:"flex",alignItems:"center",gap:6}},
+        React.createElement("span",null,icon),title
+      ),
+      items.length===0?
+        React.createElement("div",{style:{fontSize:12,color:GRAY,padding:"10px",textAlign:"center",background:LGRAY,borderRadius:8}},"No data"):
+        items.map(function(row,i){
+          var sts=row["Status"]||"Pending";
+          return React.createElement("div",{key:i,style:{background:"white",borderRadius:10,padding:"10px 12px",marginBottom:8,boxShadow:"0 1px 4px rgba(0,0,0,0.06)",display:"flex",alignItems:"center",gap:10}},
+            React.createElement("div",{style:{flex:1}},
+              React.createElement("div",{style:{fontSize:12,fontWeight:600,color:NAVY}},row["Activity"]||row["Training Topic"]||row["Item"]||"—"),
+              React.createElement("div",{style:{fontSize:10,color:GRAY,marginTop:2}},fmtDate(row["Date"]||row["Due Date"])||(row["Frequency"]||""))
+            ),
+            React.createElement(Badge,{status:sts})
+          );
+        })
+    );
+  }
+
+  return React.createElement("div",null,
+    Section("Daily Checks",daily,"☑"),
+    Section("Fortnightly HK",fortnightly,"🧹"),
+    Section("Training",training,"🎓")
+  );
+}
+
+/* ── ALERTS ── */
+function AlertsList(p){
+  var alerts=p.alerts;
+  if(!alerts||alerts.length===0)
+    return React.createElement("div",{style:{textAlign:"center",padding:40,color:GRAY,fontSize:14}},"✅ All clear — no active alerts");
+  var colors={"critical":{bg:"#FEE2E2",border:"#FCA5A5",icon:"🔴"},"warning":{bg:"#FEF3C7",border:"#FCD34D",icon:"🟡"},"info":{bg:"#DBEAFE",border:"#93C5FD",icon:"🔵"}};
+  return React.createElement("div",null,
+    alerts.map(function(a,i){
+      var c=colors[a.type]||colors.info;
+      return React.createElement("div",{key:i,style:{background:c.bg,border:"1px solid "+c.border,borderRadius:10,padding:"12px 14px",marginBottom:10,display:"flex",gap:10,alignItems:"flex-start"}},
+        React.createElement("span",{style:{fontSize:18,flexShrink:0}},c.icon),
+        React.createElement("div",null,
+          React.createElement("div",{style:{fontWeight:700,fontSize:13,color:NAVY}},a.title),
+          React.createElement("div",{style:{fontSize:12,color:GRAY,marginTop:3}},a.message)
+        )
+      );
+    })
+  );
+}
+
+/* ── LOGO ── */
+function Logo(p){
+  var s=p.size||32;
+  return React.createElement("div",{style:{display:"flex",alignItems:"center",gap:8}},
+    React.createElement("div",{style:{
+      width:s,height:s,borderRadius:8,background:"linear-gradient(135deg,#C2185B,#880E4F)",
+      display:"flex",alignItems:"center",justifyContent:"center",
+      fontWeight:800,fontSize:s*0.45,color:"white",letterSpacing:-1,flexShrink:0
+    }},"P"),
+    p.showText&&React.createElement("div",null,
+      React.createElement("div",{style:{fontWeight:800,fontSize:13,color:"white",lineHeight:1.1}},"POSH"),
+      React.createElement("div",{style:{fontSize:9,color:"rgba(255,255,255,0.6)",letterSpacing:"0.08em",fontWeight:600}})
+    )
+  );
+}
+
+/* ═══════════════════════════
+   DESKTOP LAYOUT
+═══════════════════════════ */
+function DesktopLayout(p){
+  var {tab,setTab,filter,setFilter,amc,lic,qual,alerts,kpis,loading,onRefresh,role,name,onLogout,isMobile,toggleLayout}=p;
+  var tabs=[
+    {id:"amc",label:"AMC",icon:"⚙"},
+    {id:"licenses",label:"Licenses",icon:"📋"},
+    {id:"quality",label:"Quality",icon:"☑"},
+    {id:"alerts",label:"Alerts",icon:"🔔",badge:alerts.filter(function(a){return a.type==="critical";}).length}
+  ];
+
+  var amcFilters=["All","Pending","Planned","Submitted","Validated","Overdue","Completed"];
+  var licFilters=["All","Active","Expiring Soon","Expired"];
+
+  var visAmc=amc.filter(function(r){return filter==="All"||r.Status===filter;});
+  var visLic=lic.filter(function(r){
+    var d=daysUntil(r["Expiry Date"]);
+    var s=d===null?"—":d<0?"Expired":d<30?"Expiring Soon":"Active";
+    return filter==="All"||s===filter;
+  });
+
+  return React.createElement("div",{style:{display:"flex",minHeight:"100vh"}},
+    /* SIDEBAR */
+    React.createElement("div",{className:"d-sidebar"},
+      React.createElement("div",{style:{padding:"20px 16px 16px"}},
+        React.createElement(Logo,{size:36,showText:true}),
+        React.createElement("div",{style:{color:"rgba(255,255,255,0.4)",fontSize:9,fontWeight:600,letterSpacing:"0.12em",marginTop:8}},
+          "INTEGRATED CENTRAL HUB"
+        )
+      ),
+      React.createElement("div",{style:{height:1,background:"rgba(255,255,255,0.08)",margin:"0 16px"}}),
+      /* Nav */
+      React.createElement("div",{style:{padding:"14px 10px",flex:1}},
+        tabs.map(function(t){
+          var active=tab===t.id;
+          return React.createElement("button",{
+            key:t.id,className:"d-nav-btn"+(active?" active":""),
+            onClick:function(){setTab(t.id);setFilter("All");}
+          },
+            React.createElement("span",{style:{fontSize:16}},t.icon),
+            React.createElement("span",{style:{flex:1}},t.label),
+            t.badge>0&&React.createElement("span",{style:{background:"#EF4444",color:"white",borderRadius:10,padding:"1px 6px",fontSize:10,fontWeight:700}},t.badge)
+          );
+        })
+      ),
+      React.createElement("div",{style:{height:1,background:"rgba(255,255,255,0.08)",margin:"0 16px"}}),
+      /* User + controls */
+      React.createElement("div",{style:{padding:"14px 16px"}},
+        React.createElement("div",{style:{display:"flex",alignItems:"center",gap:10,marginBottom:12}},
+          React.createElement("div",{style:{width:32,height:32,borderRadius:"50%",background:"rgba(244,143,177,0.2)",display:"flex",alignItems:"center",justifyContent:"center",color:LPINK,fontWeight:700,fontSize:13}},
+            name.charAt(0)
+          ),
+          React.createElement("div",null,
+            React.createElement("div",{style:{color:"white",fontSize:12,fontWeight:600}},name),
+            React.createElement("div",{style:{color:"rgba(255,255,255,0.4)",fontSize:10,textTransform:"capitalize"}},role)
+          )
+        ),
+        React.createElement("button",{
+          onClick:onRefresh,
+          style:{width:"100%",padding:"7px 0",background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,color:"rgba(255,255,255,0.7)",fontSize:12,fontWeight:600,marginBottom:6}
+        },"⟳ Refresh"),
+        React.createElement("button",{
+          onClick:toggleLayout,
+          style:{width:"100%",padding:"7px 0",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:8,color:"rgba(255,255,255,0.5)",fontSize:11,fontWeight:500,marginBottom:6}
+        },"📱 Mobile View"),
+        React.createElement("button",{
+          onClick:onLogout,
+          style:{width:"100%",padding:"7px 0",background:"transparent",border:"1px solid rgba(255,100,100,0.3)",borderRadius:8,color:"rgba(255,120,120,0.8)",fontSize:12,fontWeight:600}
+        },"Sign Out")
+      )
+    ),
+    /* MAIN */
+    React.createElement("div",{className:"d-main"},
+      /* Top bar */
+      React.createElement("div",{style:{padding:"18px 24px 0",background:"white",borderBottom:"1px solid #F0F0F0"}},
+        React.createElement("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}},
+          React.createElement("div",null,
+            React.createElement("h1",{style:{fontSize:20,fontWeight:800,color:NAVY}},
+              tab==="amc"?"AMC Tracker":tab==="licenses"?"License Tracker":tab==="quality"?"Quality Tracker":"Alerts"
+            ),
+            React.createElement("div",{style:{fontSize:12,color:GRAY,marginTop:2}},
+              "ICH Indore · "+todayLong()
+            )
+          ),
+          loading&&React.createElement("div",{style:{fontSize:12,color:GRAY,display:"flex",alignItems:"center",gap:6}},
+            React.createElement("div",{style:{width:14,height:14,border:"2px solid #E5E7EB",borderTop:"2px solid "+PINK,borderRadius:"50%",animation:"spin 1s linear infinite"}}),
+            "Loading…"
+          )
+        ),
+        /* KPI strip */
+        React.createElement(KpiStrip,{items:kpis,mobile:false}),
+        /* Filters */
+        (tab==="amc"||tab==="licenses")&&React.createElement(FilterBar,{
+          options:tab==="amc"?amcFilters:licFilters,
+          value:filter,onChange:setFilter
+        })
+      ),
+      /* Content */
+      React.createElement("div",{style:{padding:"20px 24px",flex:1,overflowY:"auto"}},
+        tab==="amc"&&(visAmc.length===0?
+          React.createElement("div",{style:{textAlign:"center",padding:40,color:GRAY}},"No records found"):
+          visAmc.map(function(r,i){
+            return React.createElement(AmcCard,{key:i,row:r,role:role,userName:name,onRefresh:onRefresh});
+          })
+        ),
+        tab==="licenses"&&(visLic.length===0?
+          React.createElement("div",{style:{textAlign:"center",padding:40,color:GRAY}},"No licenses found"):
+          visLic.map(function(r,i){
+            return React.createElement(LicCard,{key:i,row:r,role:role});
+          })
+        ),
+        tab==="quality"&&React.createElement(QualitySection,{data:qual,role:role,mobile:false}),
+        tab==="alerts"&&React.createElement(AlertsList,{alerts:alerts})
+      ),
+      /* Footer */
+      React.createElement("div",{style:{padding:"10px 24px",borderTop:"1px solid #F0F0F0",background:"white",display:"flex",justifyContent:"space-between",fontSize:11,color:GRAY}},
+        React.createElement("span",null,"Posh Enterprises · Tirupati Logipark Group"),
+        React.createElement("span",null,todayShort())
+      )
+    )
+  );
+}
+
+/* ═══════════════════════════
+   MOBILE LAYOUT
+═══════════════════════════ */
+function MobileLayout(p){
+  var {tab,setTab,filter,setFilter,amc,lic,qual,alerts,kpis,loading,onRefresh,role,name,onLogout,toggleLayout}=p;
+
+  var tabs=[
+    {id:"amc",label:"AMC",icon:"⚙"},
+    {id:"licenses",label:"Licences",icon:"📋"},
+    {id:"quality",label:"Quality",icon:"☑"},
+    {id:"alerts",label:"Alerts",icon:"🔔"}
+  ];
+  var amcFilters=["All","Pending","Submitted","Overdue"];
+  var licFilters=["All","Active","Expiring Soon","Expired"];
+
+  var visAmc=amc.filter(function(r){return filter==="All"||r.Status===filter;});
+  var visLic=lic.filter(function(r){
+    var d=daysUntil(r["Expiry Date"]);
+    var s=d===null?"—":d<0?"Expired":d<30?"Expiring Soon":"Active";
+    return filter==="All"||s===filter;
+  });
+
+  return React.createElement("div",{className:"m-wrap"},
+    /* Top bar */
+    React.createElement("div",{className:"m-topbar"},
+      React.createElement(Logo,{size:28,showText:false}),
+      React.createElement("div",{style:{flex:1,marginLeft:10}},
+        React.createElement("div",{style:{color:"white",fontWeight:800,fontSize:13}},
+          tab==="amc"?"AMC":tab==="licenses"?"Licences":tab==="quality"?"Quality":"Alerts"
+        ),
+        React.createElement("div",{style:{color:"rgba(255,255,255,0.5)",fontSize:9}},todayShort()+" · "+name)
+      ),
+      React.createElement("div",{style:{display:"flex",gap:8,alignItems:"center"}},
+        loading&&React.createElement("div",{style:{width:14,height:14,border:"2px solid rgba(255,255,255,0.2)",borderTop:"2px solid "+LPINK,borderRadius:"50%",animation:"spin 1s linear infinite"}}),
+        React.createElement("button",{
+          onClick:toggleLayout,
+          style:{background:"transparent",border:"none",color:"rgba(255,255,255,0.5)",fontSize:10,padding:"4px 6px"}
+        },"🖥"),
+        React.createElement("button",{
+          onClick:onRefresh,
+          style:{background:"transparent",border:"none",color:LPINK,fontSize:16,padding:"4px"}
+        },"⟳"),
+        alerts.filter(function(a){return a.type==="critical";}).length>0&&
+          React.createElement("div",{style:{width:8,height:8,borderRadius:"50%",background:"#EF4444"}})
+      )
+    ),
+    /* Content */
+    React.createElement("div",{className:"m-content"},
+      React.createElement(KpiStrip,{items:kpis,mobile:true}),
+      (tab==="amc"||tab==="licenses")&&React.createElement(FilterBar,{
+        options:tab==="amc"?amcFilters:licFilters,
+        value:filter,onChange:setFilter
+      }),
+      tab==="amc"&&(visAmc.length===0?
+        React.createElement("div",{style:{textAlign:"center",padding:30,color:GRAY,fontSize:13}},"No records"):
+        visAmc.map(function(r,i){
+          return React.createElement(AmcCard,{key:i,row:r,role:role,userName:name,onRefresh:onRefresh});
+        })
+      ),
+      tab==="licenses"&&(visLic.length===0?
+        React.createElement("div",{style:{textAlign:"center",padding:30,color:GRAY,fontSize:13}},"No licenses"):
+        visLic.map(function(r,i){return React.createElement(LicCard,{key:i,row:r,role:role});})
+      ),
+      tab==="quality"&&React.createElement(QualitySection,{data:qual,role:role,mobile:true}),
+      tab==="alerts"&&React.createElement(AlertsList,{alerts:alerts})
+    ),
+    /* Bottom nav */
+    React.createElement("div",{className:"m-bottom"},
+      tabs.map(function(t){
+        var active=tab===t.id;
+        return React.createElement("button",{
+          key:t.id,className:"m-tab"+(active?" active":""),
+          onClick:function(){setTab(t.id);setFilter("All");}
+        },
+          React.createElement("div",{className:"m-tab-icon"},t.icon),
+          React.createElement("div",null,t.label)
+        );
+      })
+    )
+  );
+}
+
+/* ═══════════════════════════
+   LOGIN SCREEN
+═══════════════════════════ */
+function LoginScreen(p){
+  var [user,setUser]=useState("");
+  var [pass,setPass]=useState("");
+  var [err,setErr]=useState("");
+  var [busy,setBusy]=useState(false);
+
+  function doLogin(e){
+    e.preventDefault();
+    setBusy(true);setErr("");
+    var u=USERS[user.trim().toUpperCase()];
+    if(u&&u.pass===pass.trim()){
+      p.onLogin({username:user.trim().toUpperCase(),role:u.role,name:u.name});
+    }else{
+      setErr("Invalid credentials. Please try again.");
+      setBusy(false);
+    }
+  }
+
+  return React.createElement("div",{style:{display:"flex",minHeight:"100vh"}},
+    /* Left panel */
+    React.createElement("div",{className:"login-left",style:{background:NAVY,padding:"48px 40px",flexDirection:"column",justifyContent:"center"}},
+      React.createElement("div",{style:{maxWidth:420}},
+        React.createElement("div",{style:{display:"flex",alignItems:"center",gap:12,marginBottom:32}},
+          React.createElement("div",{style:{width:52,height:52,borderRadius:14,background:"linear-gradient(135deg,#C2185B,#880E4F)",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:24,color:"white"}},"P"),
+          React.createElement("div",null,
+            React.createElement("div",{style:{color:"white",fontWeight:900,fontSize:22,letterSpacing:-0.5}},"POSH"),
+            React.createElement("div",{style:{color:"rgba(255,255,255,0.5)",fontSize:11,letterSpacing:"0.1em",fontWeight:600}})
+          )
+        ),
+        React.createElement("h2",{style:{color:"white",fontSize:28,fontWeight:800,marginBottom:12,lineHeight:1.2}},
+          "ICH · Integrated\nCentral Hub"
+        ),
+        React.createElement("p",{style:{color:"rgba(255,255,255,0.5)",fontSize:14,lineHeight:1.6,marginBottom:32}},
+          "Operational dashboard for AMC, licensing, quality compliance, and approval workflows — ICH Indore"
+        ),
+        ["📊 Live data from Google Sheets","⚙ AMC tracking & evidence upload","📋 License expiry monitoring","✅ 3-step approval: Staff → Manager → RDM"]
+          .map(function(item,i){
+            return React.createElement("div",{key:i,style:{display:"flex",alignItems:"center",gap:10,marginBottom:10}},
+              React.createElement("span",{style:{fontSize:14}},item.split(" ")[0]),
+              React.createElement("span",{style:{color:"rgba(255,255,255,0.6)",fontSize:13}},item.substring(item.indexOf(" ")+1))
+            );
+          })
+      )
+    ),
+    /* Right panel */
+    React.createElement("div",{className:"login-right",style:{background:"white",padding:"48px 40px",display:"flex",flexDirection:"column",justifyContent:"center",width:400,maxWidth:400}},
+      React.createElement("div",{style:{maxWidth:340,margin:"0 auto",width:"100%"}},
+        React.createElement("h2",{style:{fontSize:22,fontWeight:800,color:NAVY,marginBottom:6}},"Sign In"),
+        React.createElement("p",{style:{fontSize:13,color:GRAY,marginBottom:28}},"Enter your ICH credentials to continue"),
+        React.createElement("form",{onSubmit:doLogin},
+          React.createElement("label",{style:{fontSize:12,fontWeight:600,color:NAVY,display:"block",marginBottom:6}},"Username"),
+          React.createElement("input",{
+            value:user,onChange:function(e){setUser(e.target.value);},
+            placeholder:"e.g. POSH.ICH",
+            autoComplete:"username",
+            style:{width:"100%",padding:"11px 14px",border:"1.5px solid #E5E7EB",borderRadius:10,fontSize:14,marginBottom:16,color:NAVY}
+          }),
+          React.createElement("label",{style:{fontSize:12,fontWeight:600,color:NAVY,display:"block",marginBottom:6}},"Password"),
+          React.createElement("input",{
+            type:"password",value:pass,onChange:function(e){setPass(e.target.value);},
+            placeholder:"••••••••",
+            autoComplete:"current-password",
+            style:{width:"100%",padding:"11px 14px",border:"1.5px solid #E5E7EB",borderRadius:10,fontSize:14,marginBottom:20,color:NAVY}
+          }),
+          err&&React.createElement("div",{style:{background:"#FEE2E2",color:"#991B1B",padding:"10px 14px",borderRadius:8,fontSize:13,marginBottom:16}},err),
+          React.createElement("button",{
+            type:"submit",disabled:busy||!user||!pass,
+            style:{
+              width:"100%",padding:"13px 0",background:PINK,color:"white",border:"none",
+              borderRadius:10,fontWeight:700,fontSize:15,opacity:busy||!user||!pass?0.6:1
+            }
+          },busy?"Signing in…":"Sign In")
+        ),
+        React.createElement("div",{style:{marginTop:24,padding:"14px 16px",background:LGRAY,borderRadius:10}},
+          React.createElement("div",{style:{fontSize:11,fontWeight:700,color:NAVY,marginBottom:6}},"Test Logins"),
+          [["Staff","POSH.ICH / POSH@123"],["Manager","ADMIN.ICH / ICH@123"],["RDM","RDM.ICH / RDM@123"]].map(function(item,i){
+            return React.createElement("div",{key:i,style:{fontSize:11,color:GRAY,marginBottom:3}},
+              React.createElement("b",{style:{color:NAVY}},item[0]+":"),
+              React.createElement("span",{style:{fontFamily:"monospace",marginLeft:4}},item[1])
+            );
+          })
+        )
+      )
+    )
+  );
+}
+
+/* ═══════════════════════════
+   ROOT APP
+═══════════════════════════ */
+function App(){
+  var [user,setUser]=useState(null);
+  var [tab,setTab]=useState("amc");
+  var [filter,setFilter]=useState("All");
+  var [amc,setAmc]=useState([]);
+  var [lic,setLic]=useState([]);
+  var [qual,setQual]=useState({daily:[],fortnightly:[],training:[]});
+  var [loading,setLoading]=useState(false);
+  var [isMobile,setIsMobile]=useState(window.innerWidth<768);
+
+  /* Layout toggle */
+  useEffect(function(){
+    function onResize(){setIsMobile(window.innerWidth<768);}
+    window.addEventListener("resize",onResize);
+    return function(){window.removeEventListener("resize",onResize);};
+  },[]);
+  function toggleLayout(){setIsMobile(function(v){return !v;});}
+
+  /* Load data */
+  function loadData(){
+    if(!user)return;
+    setLoading(true);
+    Promise.all([
+      fetchSheet("AMC"),
+      fetchSheet("Licenses"),
+      fetchSheet("DailyChecks"),
+      fetchSheet("FortnightlyHK"),
+      fetchSheet("Training")
+    ]).then(function(results){
+      setAmc(results[0]||[]);
+      setLic(results[1]||[]);
+      setQual({daily:results[2]||[],fortnightly:results[3]||[],training:results[4]||[]});
+      setLoading(false);
+    }).catch(function(){setLoading(false);});
+  }
+  useEffect(function(){loadData();},[user]);
+
+  /* Build alerts */
+  var alerts=[];
+  amc.forEach(function(r){
+    var days=daysUntil(r["Next Maintenance Date"]);
+    if(r["Status"]==="Overdue"||days<0){
+      alerts.push({type:"critical",title:"Overdue: "+(r["Equipment Name"]||"Task"),message:"Maintenance was due "+Math.abs(days)+" days ago"});
+    } else if(days!==null&&days<7){
+      alerts.push({type:"warning",title:"Due Soon: "+(r["Equipment Name"]||"Task"),message:"Maintenance due in "+days+" days"});
+    }
+  });
+  lic.forEach(function(r){
+    var days=daysUntil(r["Expiry Date"]);
+    if(days!==null&&days<0){
+      alerts.push({type:"critical",title:"Expired: "+(r["License Name"]||"License"),message:"Expired "+Math.abs(days)+" days ago"});
+    } else if(days!==null&&days<30){
+      alerts.push({type:"warning",title:"Expiring: "+(r["License Name"]||"License"),message:"Expires in "+days+" days"});
+    }
+  });
+
+  /* KPIs */
+  var kpis=[
+    {label:"AMC Tasks",value:amc.length,color:NAVY},
+    {label:"Overdue",value:amc.filter(function(r){return r.Status==="Overdue";}).length,color:"#991B1B"},
+    {label:"Pending Approval",value:amc.filter(function(r){return r.Status==="Submitted"||r.Status==="Validated";}).length,color:"#1E40AF"},
+    {label:"Licences",value:lic.length,color:NAVY},
+    {label:"Alerts",value:alerts.filter(function(a){return a.type==="critical";}).length,color:"#991B1B"},
+  ];
+
+  if(!user) return React.createElement(LoginScreen,{onLogin:function(u){setUser(u);}});
+
+  var layoutProps={
+    tab,setTab,filter,setFilter,
+    amc,lic,qual,alerts,kpis,
+    loading,onRefresh:loadData,
+    role:user.role,name:user.name,
+    onLogout:function(){setUser(null);setAmc([]);setLic([]);},
+    isMobile,toggleLayout
+  };
+
+  return isMobile?
+    React.createElement(MobileLayout,layoutProps):
+    React.createElement(DesktopLayout,layoutProps);
+}
+
+/* CSS animation */
+var style=document.createElement("style");
+style.textContent="@keyframes spin{to{transform:rotate(360deg)}}";
+document.head.appendChild(style);
+
+ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App,null));
+</script>
+</body>
+</html>

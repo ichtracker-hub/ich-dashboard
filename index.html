@@ -1674,6 +1674,8 @@ function LoginScreen(props) {
   var [pass,setPass] = useState("");
   var [err,setErr]   = useState("");
   var [busy,setBusy] = useState(false);
+  var [otpStep,setOtpStep] = useState(false);
+  var [otpCode,setOtpCode] = useState("");
 
   async function doLogin() {
     if (!user||!pass) { setErr("Please enter username and password."); return; }
@@ -1683,6 +1685,11 @@ function LoginScreen(props) {
       // Secure login: a Cloud Function checks the hashed password and returns a
       // sign-in token. No password is checked in the browser; no email involved.
       var res = await fns.httpsCallable("login")({ username: user.trim(), password: pass });
+      if (res && res.data && res.data.otpRequired) {
+        // Head accounts require a second factor — a code was just emailed.
+        setOtpStep(true);
+        return;
+      }
       var token = res && res.data && res.data.token;
       if (!token) { setErr("Login failed. Try again."); return; }
       _mustChangePw = !!(res && res.data && res.data.mustChangePassword);
@@ -1690,6 +1697,23 @@ function LoginScreen(props) {
       // onAuthStateChanged loads the profile and routes the user.
     } catch(e) {
       console.error("[doLogin:desktop] catch:", e && e.code, e && e.message);
+      setErr(authErrMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function doVerifyOtp() {
+    if (!otpCode.trim()) { setErr("Enter the code from your email."); return; }
+    setBusy(true); setErr("");
+    try {
+      var res = await fns.httpsCallable("verifyLoginOtp")({ username: user.trim(), code: otpCode.trim() });
+      var token = res && res.data && res.data.token;
+      if (!token) { setErr("Verification failed. Try again."); return; }
+      _mustChangePw = !!(res && res.data && res.data.mustChangePassword);
+      await auth.signInWithCustomToken(token);
+    } catch(e) {
+      console.error("[doVerifyOtp:desktop] catch:", e && e.code, e && e.message);
       setErr(authErrMsg(e));
     } finally {
       setBusy(false);
@@ -1759,6 +1783,7 @@ function LoginScreen(props) {
           <img src={LOGO} alt="beyond OTIF" style={{height:72,objectFit:"contain"}}/>
         </div>
         <div style={{height:1,background:"#EBF5FB",marginBottom:22}}/>
+        {!otpStep ? (<>
         <div style={{marginBottom:22}}>
           <div style={{fontSize:22,fontWeight:800,color:NAVY,marginBottom:4}}>Welcome back</div>
           <div style={{fontSize:13,color:GRAY}}>Sign in to Posh Compliance Tracker</div>
@@ -1782,6 +1807,28 @@ function LoginScreen(props) {
           style={{width:"100%",padding:"15px",background:busy?"#90CAF9":"linear-gradient(135deg,#003865,#007AC2)",border:"none",borderRadius:12,color:"white",fontSize:16,fontWeight:700,boxShadow:busy?"none":"0 4px 20px rgba(0,122,194,0.35)"}}>
           {busy?"Signing in…":"Sign In"}
         </button>
+        </>) : (<>
+        <div style={{marginBottom:22}}>
+          <div style={{fontSize:22,fontWeight:800,color:NAVY,marginBottom:4}}>Check your email</div>
+          <div style={{fontSize:13,color:GRAY}}>Enter the 6-digit code we just sent to your registered email.</div>
+        </div>
+        <div style={{marginBottom:22}}>
+          <label style={{fontSize:11,fontWeight:700,color:NAVY,display:"block",marginBottom:7,letterSpacing:"0.08em",textTransform:"uppercase"}}>Login Code</label>
+          <input value={otpCode} onChange={function(e){setOtpCode(e.target.value);}} onKeyDown={function(e){if(e.key==="Enter")doVerifyOtp();}} placeholder="6-digit code" maxLength={6} autoFocus
+            style={{width:"100%",padding:"13px 16px",border:"2px solid #D0E8F5",borderRadius:10,fontSize:20,letterSpacing:"0.3em",textAlign:"center",color:NAVY,background:"#F7FBFF"}}
+            onFocus={function(e){e.target.style.border="2px solid "+BLUE;e.target.style.background="white";}}
+            onBlur={function(e){e.target.style.border="2px solid #D0E8F5";e.target.style.background="#F7FBFF";}}/>
+        </div>
+        {err && <div style={{marginBottom:16,padding:"12px 16px",background:"#FFEBEE",borderRadius:10,fontSize:13,color:"#B71C1C",border:"1px solid #FFCDD2"}}>{err}</div>}
+        <button onClick={doVerifyOtp} disabled={busy}
+          style={{width:"100%",padding:"15px",background:busy?"#90CAF9":"linear-gradient(135deg,#003865,#007AC2)",border:"none",borderRadius:12,color:"white",fontSize:16,fontWeight:700,boxShadow:busy?"none":"0 4px 20px rgba(0,122,194,0.35)"}}>
+          {busy?"Verifying…":"Verify & Sign In"}
+        </button>
+        <button onClick={function(){setOtpStep(false);setOtpCode("");setErr("");}} disabled={busy}
+          style={{width:"100%",padding:"10px",marginTop:10,background:"transparent",border:"none",color:GRAY,fontSize:12,cursor:"pointer"}}>
+          ← Back to sign in
+        </button>
+        </>)}
         <div style={{marginTop:22,padding:"13px",background:"#EBF5FB",borderRadius:10,fontSize:11,color:"#005A9E",textAlign:"center",fontWeight:600}}>Posh Compliance Tracker · Secure Portal</div>
       </div>
     </div>
@@ -1797,6 +1844,8 @@ function MobileLoginScreen(props) {
   var [err,setErr]   = useState("");
   var [busy,setBusy] = useState(false);
   var [showPass,setShowPass] = useState(false);
+  var [otpStep,setOtpStep] = useState(false);
+  var [otpCode,setOtpCode] = useState("");
 
   async function doLogin() {
     if (!user||!pass) { setErr("Please enter username and password."); return; }
@@ -1805,12 +1854,33 @@ function MobileLoginScreen(props) {
     try {
       // Secure login via Cloud Function (hashed password check, no email).
       var res = await fns.httpsCallable("login")({ username: user.trim(), password: pass });
+      if (res && res.data && res.data.otpRequired) {
+        setOtpStep(true);
+        return;
+      }
       var token = res && res.data && res.data.token;
       if (!token) { setErr("Login failed. Try again."); return; }
       _mustChangePw = !!(res && res.data && res.data.mustChangePassword);
       await auth.signInWithCustomToken(token);
     } catch(e) {
       console.error("[doLogin:mobile] catch:", e && e.code, e && e.message);
+      setErr(authErrMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function doVerifyOtp() {
+    if (!otpCode.trim()) { setErr("Enter the code from your email."); return; }
+    setBusy(true); setErr("");
+    try {
+      var res = await fns.httpsCallable("verifyLoginOtp")({ username: user.trim(), code: otpCode.trim() });
+      var token = res && res.data && res.data.token;
+      if (!token) { setErr("Verification failed. Try again."); return; }
+      _mustChangePw = !!(res && res.data && res.data.mustChangePassword);
+      await auth.signInWithCustomToken(token);
+    } catch(e) {
+      console.error("[doVerifyOtp:mobile] catch:", e && e.code, e && e.message);
       setErr(authErrMsg(e));
     } finally {
       setBusy(false);
@@ -1834,6 +1904,7 @@ function MobileLoginScreen(props) {
         <div style={{width:44,height:2.5,background:BLUE,margin:"12px auto 0",borderRadius:2}}/>
       </div>
       <div style={{width:"100%",maxWidth:360}}>
+        {!otpStep ? (<>
         <div style={{marginBottom:14}}>
           <label style={{fontSize:10,fontWeight:700,color:NAVY,letterSpacing:"0.16em",display:"block",marginBottom:7,textTransform:"uppercase"}}>USERNAME</label>
           <input value={user} onChange={function(e){setUser(e.target.value);setErr("");}} onKeyDown={function(e){if(e.key==="Enter")doLogin();}} placeholder="Enter username" autoCapitalize="none" autoCorrect="off" style={inputBase}
@@ -1853,6 +1924,25 @@ function MobileLoginScreen(props) {
         <button onClick={doLogin} disabled={busy} style={{width:"100%",padding:"15px",background:busy?"#90CAF9":"linear-gradient(135deg,#003865,#007AC2)",border:"none",borderRadius:12,color:"white",fontSize:15,fontWeight:700,letterSpacing:"0.06em",cursor:busy?"not-allowed":"pointer"}}>
           {busy?"SIGNING IN…":"SIGN IN"}
         </button>
+        </>) : (<>
+        <div style={{marginBottom:18,textAlign:"center"}}>
+          <div style={{fontSize:16,fontWeight:800,color:NAVY,marginBottom:4}}>Check your email</div>
+          <div style={{fontSize:12,color:GRAY}}>Enter the 6-digit code we just sent you.</div>
+        </div>
+        <div style={{marginBottom:24}}>
+          <label style={{fontSize:10,fontWeight:700,color:NAVY,letterSpacing:"0.16em",display:"block",marginBottom:7,textTransform:"uppercase"}}>LOGIN CODE</label>
+          <input value={otpCode} onChange={function(e){setOtpCode(e.target.value);setErr("");}} onKeyDown={function(e){if(e.key==="Enter")doVerifyOtp();}} placeholder="6-digit code" maxLength={6} autoFocus style={Object.assign({},inputBase,{fontSize:20,letterSpacing:"0.3em",textAlign:"center"})}
+            onFocus={function(e){e.target.style.border="1.5px solid "+BLUE;e.target.style.background="white";}}
+            onBlur={function(e){e.target.style.border="1.5px solid #D0E8F5";e.target.style.background="#F7FBFF";}}/>
+        </div>
+        {err&&<div style={{marginBottom:18,padding:"11px 15px",background:"#FFEBEE",border:"1px solid #FFCDD2",borderRadius:10,fontSize:13,color:"#B71C1C"}}>{err}</div>}
+        <button onClick={doVerifyOtp} disabled={busy} style={{width:"100%",padding:"15px",background:busy?"#90CAF9":"linear-gradient(135deg,#003865,#007AC2)",border:"none",borderRadius:12,color:"white",fontSize:15,fontWeight:700,letterSpacing:"0.06em",cursor:busy?"not-allowed":"pointer"}}>
+          {busy?"VERIFYING…":"VERIFY & SIGN IN"}
+        </button>
+        <button onClick={function(){setOtpStep(false);setOtpCode("");setErr("");}} disabled={busy} style={{width:"100%",padding:"10px",marginTop:10,background:"transparent",border:"none",color:GRAY,fontSize:12,cursor:"pointer"}}>
+          ← Back to sign in
+        </button>
+        </>)}
       </div>
       <div style={{marginTop:36,fontSize:9,color:"#B0BEC5",letterSpacing:"0.14em"}}>AMC · LICENSES · QUALITY</div>
     </div>

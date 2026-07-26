@@ -3320,6 +3320,9 @@ function App(){
   var [legalCases,setLegalCases]=useState([]);
   var [assets,setAssets]=useState([]);
   var [documents,setDocuments]=useState([]);
+  var [supportTickets,setSupportTickets]=useState([]);
+  var [supportQuestion,setSupportQuestion]=useState("");
+  var [supportSending,setSupportSending]=useState(false);
   var [loading,setLoading]=useState(false);
   var [loadErr,setLoadErr]=useState("");
   var [modal,setModal]=useState(null);
@@ -3479,7 +3482,7 @@ function App(){
   }
 
   useEffect(function(){
-    if(!authUser){setAmc([]);setLic([]);setQual([]);setTraining([]);setLegalCases([]);setAssets([]);return;}
+    if(!authUser){setAmc([]);setLic([]);setQual([]);setTraining([]);setLegalCases([]);setAssets([]);setSupportTickets([]);return;}
     var locId=authUser.locationId||"";
     var aRole=authUser.role;if(aRole==="Operator")aRole="Staff";
     // listenIds = the hub ids whose data to subscribe to. null = load every hub
@@ -3523,6 +3526,18 @@ function App(){
     listen("legalCases",setLegalCases,mapLegalCase);
     listen("assets",setAssets,mapAsset);
     listen("documents",setDocuments,mapDocument);
+    // Support tickets: scoped to the signed-in user's own questions (not
+    // location-scoped like the operational collections above — a person's
+    // ticket list follows them, not their hub).
+    var uname=authUser.username||"";
+    if(uname){
+      var uTickets=db.collection("supportTickets").where("userId","==",uname).onSnapshot(function(snap){
+        var rows=snap.docs.map(function(doc){return Object.assign({_docId:doc.id},doc.data());});
+        rows.sort(function(a,b){var ta=a.createdAt&&a.createdAt.toMillis?a.createdAt.toMillis():0;var tb=b.createdAt&&b.createdAt.toMillis?b.createdAt.toMillis():0;return tb-ta;});
+        setSupportTickets(rows);
+      },function(e){console.error("supportTickets listener error:",e);});
+      unsubs.push(uTickets);
+    }
     // Locations are global (not location-scoped) — load without the locId filter.
     var ulocs=db.collection("locations").onSnapshot(function(snap){
       setDbLocations(snap.docs.map(function(d){var x=d.data();return{id:x.locationId||d.id,docId:d.id,name:x.name||d.id,type:x.type||"",active:(x.active!==false)};}));
@@ -3717,6 +3732,10 @@ function App(){
     else if(d<=7)notifs.push({id:"leg7_"+t._docId,level:"warning",tag:"Hearing "+d+"d",text:"Hearing in "+d+"d: "+nm,task:ltask,sheet:"Legal"});
     else if(d<=30)notifs.push({id:"leg30_"+t._docId,level:"warning",tag:"Hearing "+d+"d",text:"Hearing in "+d+"d: "+nm,task:ltask,sheet:"Legal"});
   });
+  supportTickets.forEach(function(t){
+    if(t.status==="answered")notifs.push({id:"sup_"+t._docId,level:"info",tag:"Answered",text:"Support: "+String(t.question||"").slice(0,80)+(String(t.question||"").length>80?"…":""),task:null,sheet:"Support"});
+    else if(t.status==="escalated")notifs.push({id:"supesc_"+t._docId,level:"warning",tag:"Escalated",text:"Support ticket needs a human — a Manager/Head will follow up: "+String(t.question||"").slice(0,80),task:null,sheet:"Support"});
+  });
   var sopList=Object.keys((function(){var o={};training.forEach(function(t){if(t["SOP Name"])o[t["SOP Name"]]=1;});return o;})()).sort();
   notifs=notifs.filter(function(n){return dismissed.indexOf(n.id)===-1;});
   /* tag assignee on each notif */
@@ -3726,6 +3745,27 @@ function App(){
   var warns=notifs.filter(function(n){return n.level==="warning"&&!n.isMine;});
   var infos=notifs.filter(function(n){return n.level==="info"&&!n.isMine;});
   var notifCount=notifs.length;
+
+  async function submitSupportTicket(){
+    var q=supportQuestion.trim();
+    if(!q)return;
+    setSupportSending(true);
+    try{
+      await db.collection("supportTickets").add({
+        userId:authUser.username||"",
+        userName:authUser.name||"",
+        locationId:authUser.locationId||"",
+        question:q.slice(0,2000),
+        status:"open",
+        answer:"",
+        createdAt:firebase.firestore.FieldValue.serverTimestamp(),
+        answeredAt:null,
+      });
+      setSupportQuestion("");
+      addToast("Question submitted — you'll be notified when it's answered","success");
+    }catch(e){console.error("[submitSupportTicket]",e);addToast("Couldn't submit your question — try again","error");}
+    setSupportSending(false);
+  }
 
   async function handleAssign(){
     if(!assignModal||!assignTo)return;setSaving(true);
@@ -4419,6 +4459,7 @@ function App(){
             {id:"legal",    label:"Legal Cases",    icon:"ti-scale", cnt:legalCases.length, mod:true, grp:"Modules"},
             {id:"vault",    label:"Document Vault", icon:"ti-folders", cnt:documents.length, mod:true, grp:"Modules"},
             !isScopedOverseer&&{id:"alerts",   label:"Alerts",         icon:"ti-bell",cnt:notifCount,badge:notifCount>0, grp:"Reports"},
+            !isScopedOverseer&&{id:"support",  label:"Support",        icon:"ti-lifebuoy",cnt:supportTickets.filter(function(t){return t.status==="open";}).length, grp:"Reports"},
             canViewKPI&&{id:"kpi", label:"Team KPI", icon:"ti-chart-bar",cnt:null, grp:"Reports"},
             !isScopedOverseer&&{id:"activity", label:"Activity Log",   icon:"ti-history",cnt:null, grp:"Reports"},
             isRDM&&{id:"activity", label:"Activity Log",   icon:"ti-history",cnt:null, mod:true, grp:"Reports"},
@@ -4928,6 +4969,40 @@ function App(){
             </div>
           )}
 
+          {tab==="support"&&(
+            <div>
+              <div style={{background:"white",borderRadius:14,padding:"20px 22px",marginBottom:20,boxShadow:"0 1px 6px rgba(0,56,101,0.06)"}}>
+                <div style={{fontSize:14,fontWeight:800,color:DARK,marginBottom:4}}>Raise a Support Ticket</div>
+                <div style={{fontSize:12,color:GRAY,marginBottom:12}}>Ask a how-to question about PCT, or "what's due/overdue for me". Answered automatically a few times a day — if it's not something the assistant can answer, a Manager/Head will follow up.</div>
+                <textarea value={supportQuestion} onChange={function(e){setSupportQuestion(e.target.value);}} maxLength={2000} placeholder="e.g. How do I renew a licence? / What's overdue for me right now?" style={Object.assign({},inp,{minHeight:80,resize:"vertical"})}/>
+                <div style={{display:"flex",justifyContent:"flex-end",marginTop:10}}>
+                  <button disabled={supportSending||!supportQuestion.trim()} onClick={submitSupportTicket} style={{padding:"10px 22px",fontSize:13,fontWeight:700,borderRadius:10,border:"none",background:(supportSending||!supportQuestion.trim())?"#9CA3AF":"linear-gradient(135deg,#003865,#007AC2)",color:"white",cursor:(supportSending||!supportQuestion.trim())?"default":"pointer",display:"inline-flex",alignItems:"center",gap:7}}><i className="ti ti-send" aria-hidden="true" style={{fontSize:15}}/>{supportSending?"Submitting…":"Submit Question"}</button>
+                </div>
+              </div>
+
+              {supportTickets.length===0?(
+                <div style={{textAlign:"center",padding:"60px 20px"}}><div style={{width:64,height:64,borderRadius:16,background:"#EEF4FA",display:"inline-flex",alignItems:"center",justifyContent:"center",marginBottom:16}}><i className="ti ti-lifebuoy" aria-hidden="true" style={{fontSize:32,color:"#5B7A99"}}/></div><div style={{fontSize:18,fontWeight:700,color:DARK,marginBottom:8}}>No Questions Yet</div><div style={{fontSize:14,color:GRAY}}>Questions you raise will show up here with their answers.</div></div>
+              ):(
+                <div>
+                  <div style={{fontSize:13,fontWeight:700,color:DARK,marginBottom:14}}>Your Questions ({supportTickets.length})</div>
+                  {supportTickets.map(function(t){
+                    var sb=t.status==="answered"?{bg:"#D1FAE5",color:"#065F46",label:"Answered",icon:"ti-circle-check"}:t.status==="escalated"?{bg:"#FEF3C7",color:"#92400E",label:"With a Manager",icon:"ti-user-exclamation"}:{bg:"#EBF5FB",color:"#005A9E",label:"Open",icon:"ti-clock"};
+                    return(
+                      <div key={t._docId} style={{background:"white",borderRadius:12,padding:"14px 18px",marginBottom:8,boxShadow:"0 1px 6px rgba(0,56,101,0.06)"}}>
+                        <div style={{display:"flex",alignItems:"flex-start",gap:10,justifyContent:"space-between"}}>
+                          <div style={{fontSize:13,fontWeight:700,color:DARK,flex:1}}>{t.question}</div>
+                          <span style={{fontSize:10,fontWeight:800,padding:"3px 9px",borderRadius:8,background:sb.bg,color:sb.color,display:"inline-flex",alignItems:"center",gap:4,flexShrink:0}}><i className={"ti "+sb.icon} aria-hidden="true" style={{fontSize:12}}/>{sb.label}</span>
+                        </div>
+                        {t.status==="answered"&&t.answer&&<div style={{marginTop:10,padding:"10px 14px",background:"#F7FBFF",borderRadius:10,border:"1px solid #E3F2FD",fontSize:13,color:DARK}}>{t.answer}</div>}
+                        {t.status==="escalated"&&<div style={{marginTop:10,padding:"10px 14px",background:"#FFFBEB",borderRadius:10,border:"1px solid #FDE68A",fontSize:12,color:"#92400E"}}>This needs a person's judgement — flagged for your Manager/Head to follow up.</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
         </div>
 
         <div style={{padding:"14px 28px",borderTop:"1px solid #E3F2FD",background:"white",display:"flex",justifyContent:"space-between",fontSize:11,color:GRAY}}>
@@ -4947,6 +5022,7 @@ function App(){
           {id:"licenses", label:"Licences", icon:"ti-certificate", mod:true},
           {id:"quality",  label:"Quality",  icon:"ti-circle-check", mod:true},
           !isScopedOverseer&&{id:"alerts",   label:"Alerts",   icon:"ti-bell", badge:notifCount>0, cnt:notifCount},
+          !isScopedOverseer&&{id:"support",  label:"Support",  icon:"ti-lifebuoy"},
           canViewKPI&&{id:"kpi", label:"KPI", icon:"ti-chart-bar"},
           !isScopedOverseer&&{id:"activity", label:"Log",      icon:"ti-history"},
           isRDM&&{id:"activity", label:"Log",      icon:"ti-history", mod:true},

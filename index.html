@@ -124,9 +124,10 @@ var useEffect = React.useEffect;
 /* ── VERSION CONTROL (requirement #4) ──
    Bump APP_VERSION + prepend a CHANGELOG entry on every release.
    Displayed in the sidebar; full history shown via the version badge. */
-var APP_VERSION = "1.12.0";
-var APP_UPDATED = "2026-07-16";
+var APP_VERSION = "1.13.0";
+var APP_UPDATED = "2026-07-28";
 var APP_CHANGELOG = [
+  { v:"1.13.0", date:"2026-07-28", by:"Head (BOSSMANPOSH)", note:"Quality tab redesign + Head permissions. (1) '+ Add Activity' no longer opens one form with a nested Activity Type → Sub-Category → Sub-Type dropdown chain — it opens a category picker (Daily Housekeeping / Housekeeping (Fortnightly) / PCI / Plan a Training); picking a card pre-fills the record and hides the now-redundant category fields, so adding one activity is a single click plus the details that are actually unique to it. (2) PCI is now its own top-level Activity Type (previously only reachable as a Sub-Type buried under Frequency = Fortnightly on 'Fortnightly Housekeeping') — it gets its own section in the Quality Activities list, its own colour, and its own CSV template row. Existing records saved as Fortnightly Housekeeping + Sub-Type=PCI are untouched and still display correctly. (3) Fixed a bug the redesign would otherwise have hit: Sub-Type was being force-defaulted to 'Housekeeping' for ANY Fortnightly-frequency Quality record (Add form and CSV bulk-import) — it's now only auto-set for the 'Fortnightly Housekeeping' activity type specifically, so new PCI/Training records never get mislabelled. (4) Head is now a true super-admin: previously Head was grouped with read-only roles (Viewer/RDM/CFA Owner/Company View) for the maker-checker workflow and was excluded from Training Matrix management, meaning Head could add/edit/delete AMC, Licence and Quality records but couldn't Submit Evidence, Validate, or manage the Training Matrix at all (no Add/Bulk Assign/Bulk Import, couldn't click a matrix cell). Head now has every permission in the app." },
   { v:"1.12.0", date:"2026-07-16", by:"Head (BOSSMANPOSH)", note:"Quality module + workflow upgrade. (1) Fortnightly Sub-Type: selecting Frequency = Fortnightly on a Quality activity now shows an 'Activity Sub-Type' dropdown (Housekeeping / PCI, extensible) — stored on the activity, shown as a chip in the list, and available as an optional Sub-Type column in the Quality bulk-upload CSV. (2) Quality alert window narrowed: Quality activities now alert only 3 days before and on the due date itself (previously 30/15/7/5/3/1), both in-app and in the daily email — AMC, Licences and Training thresholds are unchanged. (3) Workflow tabs: the AMC, Quality and Licences filter bars are now action-oriented stages with live counts — All / Pending / Awaiting Validation / Closed (Licences: All / Active / Awaiting Validation / Expired) — instead of a flat list of every raw status. (4) Quick actions: the primary action (Validate & Close, Submit Evidence, etc.) now appears directly on each collapsed row, so a Manager on the 'Awaiting Validation' tab can act without opening each record first. (5) Performance: app logo re-compressed (~54KB smaller file, ~24% less to download) and repeated label styles moved into shared CSS classes. No change to any existing workflow, permission or data." },
   { v:"1.11.0", date:"2026-07-10", by:"Head (BOSSMANPOSH)", note:"Login hardening. (1) Server-side rate limiting: after 8 consecutive wrong passwords an account is locked for 10 minutes (counters live on the non-readable userSecrets doc; fail-open so a glitch can never permanently bar a user). (2) Forced password change on first login and after an admin reset: new/reset accounts must replace the temporary password on a mandatory full-screen gate before the app loads (backed by sessionStorage so a reload can't bypass it). (3) The hub-wizard 'default password' is now a random 10-character temporary secret instead of the fixed 'Tracker@123'. Requires deploying the login/createUser/setPassword Cloud Functions (done)." },
   { v:"1.10.0", date:"2026-07-09", by:"Head (BOSSMANPOSH)", note:"Document Vault — new module under Modules for reference documents (agreements, SOPs, insurance papers, certificates): upload with category, optional expiry, optional link-to-record, and notes. Documents are grouped by category with search, a category filter, expiry badges (≤30d / expired), and a hub badge in the all-hubs view. (2) Validated evidence now AUTO-ARCHIVES into the Vault: when a Manager/Quality Manager validates & closes an AMC/Licence/Quality record, its evidence is filed as a searchable, record-linked Vault entry (tagged 'Validated Evidence') — it references the existing evidence file, so no extra storage is used. (3) Image compression + thumbnails: photo evidence and vault images are resized/compressed client-side before upload (typically 70–90% smaller), and a small thumbnail is generated for fast gallery previews. Requires deploying firestore.rules + storage.rules (documents collection + vault/ storage path, location-scoped, 10MB cap, type allowlist). (4) QUALITY MODULE upgraded to the full maker–checker loop like AMC: the assignee now Submits Evidence (file or remark) → status 'Submitted' (raises a 'Needs Review' alert) → a Manager/Quality Manager Validates & Closes or Sends Back — replacing the old single-click 'Mark Complete'. Validated Quality evidence auto-archives into the Vault, and re-opening a recurring activity ('Log Next Cycle') now archives the previous cycle's evidence." },
@@ -214,6 +215,17 @@ var QUALITY_SUBTYPES = ["Housekeeping", "PCI"];
 /* [Q2] Quality-only alert window: 3 days before + same day (0). Overdue always alerts.
         Does NOT affect AMC / Licences / Training. */
 var QUALITY_ALERT_DAYS = [3, 0];
+/* [Q3] 2026-07-28 — Quick-add categories for the Quality tab. Replaces the old single
+        "Activity Type / Sub-Category / Sub-Type" dropdown chain with one click per
+        recurring category, plus a lane for planned (future-dated) trainings. Each
+        category pre-fills the record's Activity Type / Sub-Category / Sub-Type /
+        Frequency so the Add form only asks for what's actually unique to that entry. */
+var QUALITY_CATEGORIES = [
+  { key:"dailyhk", label:"Daily Housekeeping", icon:"ti-droplet", color:"#2E7D32", bg:"#E8F5E9", desc:"Routine daily cleaning check — logged every day.", activityType:"Daily Housekeeping", subCategory:"Housekeeping", subType:"", frequency:"Daily", lockFrequency:true },
+  { key:"hk", label:"Housekeeping (Fortnightly)", icon:"ti-home-2", color:"#6A1B9A", bg:"#F3E5F5", desc:"Fortnightly deep-clean / housekeeping round.", activityType:"Fortnightly Housekeeping", subCategory:"Housekeeping", subType:"Housekeeping", frequency:"Fortnightly", lockFrequency:false },
+  { key:"pci", label:"PCI (Pest Control)", icon:"ti-bug", color:"#B45309", bg:"#FEF3C7", desc:"Pest control inspection — recurring, cadence editable.", activityType:"PCI", subCategory:"Pest Control", subType:"", frequency:"Fortnightly", lockFrequency:false },
+  { key:"training", label:"Plan a Training", icon:"ti-school", color:"#1565C0", bg:"#E3F2FD", desc:"Schedule a training you're planning — set a future date to get advance alerts.", activityType:"Training", subCategory:"Training", subType:"", frequency:"Annual", lockFrequency:false },
+];
 
 /* [#3a] Workflow-stage tabs — regroup granular statuses into action-oriented stages.
         Each module's non-"All" tabs together cover EVERY status, so no record is ever
@@ -328,9 +340,12 @@ function unmapLicence(row){
 }
 function unmapQuality(row){
   var saveStatus=String(row["Status"]||"Pending");if(saveStatus==="Overdue")saveStatus="Pending";
-  /* [Q1] Sub-Type only carried for Fortnightly activities; blank for all other frequencies.
-          Empty-but-Fortnightly defaults to the first configured sub-type. */
-  var qFreq=String(row["Frequency"]||"");var qSubType=qFreq==="Fortnightly"?(String(row["Sub-Type"]||"").trim()||QUALITY_SUBTYPES[0]):"";
+  /* [Q1] Sub-Type only carried for the "Fortnightly Housekeeping" activity type (it
+          disambiguates Housekeeping vs PCI rounds within that one category). PCI now has
+          its own Activity Type (see QUALITY_CATEGORIES), so it — and every other
+          category — always saves Sub-Type blank, even if its frequency is Fortnightly. */
+  var qFreq=String(row["Frequency"]||"");var qAtype=String(row["Activity Type"]||"");
+  var qSubType=(qAtype==="Fortnightly Housekeeping"&&qFreq==="Fortnightly")?(String(row["Sub-Type"]||"").trim()||QUALITY_SUBTYPES[0]):"";
   return{activityType:row["Activity Type"]||"",activityName:row["Activity Name"]||"",description:row["Description"]||"",frequency:row["Frequency"]||"",scheduledDate:row["Scheduled Date"]||"",assignedTo:row["Assigned To"]||"",subCategory:row["Sub-Category"]||"",subType:qSubType,deadline:row["Deadline"]||"",assignmentDate:row["Assignment Date"]||"",status:saveStatus,remarks:row["Remarks"]||"",submittedBy:row["Submitted By"]||"",submittedOn:row["Submitted On"]||"",validatedBy:row["Validated By"]||"",validatedOn:row["Validated On"]||"",evidenceFile:row["Evidence File"]||""};
 }
 function mapTraining(id,d){
@@ -585,7 +600,7 @@ function EditModal(props){
   ];
   var qualF=[
     {k:"Activity Name",l:"Activity Name",t:"text",req:true},
-    {k:"Activity Type",l:"Activity Type",t:"sel",o:["Training","Daily Housekeeping","Fortnightly Housekeeping"]},
+    {k:"Activity Type",l:"Activity Type",t:"sel",o:["Training","Daily Housekeeping","Fortnightly Housekeeping","PCI"]},
     {k:"Sub-Category",l:"Sub-Category",t:"sel",o:["Housekeeping","Pest Control","Training"]},
     {k:"Description",l:"Description",t:"area"},
     {k:"Frequency",l:"Frequency",t:"sel",o:["Daily","Weekly","Fortnightly","Monthly","Quarterly","Annual","One-Time"]},
@@ -634,13 +649,46 @@ function EditModal(props){
 }
 
 /* ══════════════════════════════════════════
+   QUALITY CATEGORY PICKER  (2026-07-28)
+   Replaces the old single "+ Add Activity" form (which forced Activity Type
+   → Sub-Category → Sub-Type dropdown picks) with one click per recurring
+   category, plus a lane for planned/future training. Picking a card opens
+   AddModal pre-configured via QUALITY_CATEGORIES — no dropdown chain.
+══════════════════════════════════════════ */
+function QualityCategoryPicker(props){
+  return(
+    <div className="modal-ov" onClick={props.onClose}>
+      <div className="modal-box" style={{maxWidth:520}} onClick={function(e){e.stopPropagation();}}>
+        <div style={{padding:"22px 22px 0"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+            <div><div className="eyebrow">Quality · Add New</div><div style={{fontSize:16,fontWeight:800,color:DARK}}>What are you logging?</div></div>
+            <button onClick={props.onClose} style={{background:"#F0F8FF",border:"none",width:32,height:32,borderRadius:8,fontSize:16,color:GRAY,cursor:"pointer"}}><i className="ti ti-x" aria-hidden="true"/></button>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,paddingBottom:22}}>
+            {QUALITY_CATEGORIES.map(function(c){return(
+              <div key={c.key} onClick={function(){props.onPick(c);}} style={{cursor:"pointer",padding:"16px 14px",borderRadius:12,border:"1.5px solid "+c.color,background:c.bg,transition:"transform 0.1s"}}>
+                <i className={"ti "+c.icon} aria-hidden="true" style={{fontSize:22,color:c.color}}/>
+                <div style={{fontSize:13.5,fontWeight:700,color:c.color,marginTop:8,marginBottom:3}}>{c.label}</div>
+                <div style={{fontSize:11.5,color:GRAY,lineHeight:1.4}}>{c.desc}</div>
+              </div>
+            );})}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
    ADD MODAL  (enhanced with templates + validation)
 ══════════════════════════════════════════ */
 function AddModal(props){
   var defAMC={"Equipment Name":"","Serial No":"","Vendor Name":"","Approved Vendor Name":"","Vendor Contact Person":"","Vendor Contact No":"","AMC Period":"","Frequency":"Monthly","Next Service Due Date":"","Deadline":"","Status":"Pending","Assigned To":"","Remarks":""};
   var defLic={"License / Agreement Name":"","Company":"","License No / Key":"","Contact Person":"","Contact No":"","Issue Year":String(new Date().getFullYear()),"Expiry Date":"","Renewal Due Date":"","Status":"Active","Competent Person":"","Assigned To":"","Deadline":"","Remarks":"","Requires Breakup":false};
   var defQual={"Activity Name":"","Activity Type":"Training","Sub-Category":"Training","Description":"","Frequency":"Annual","Scheduled Date":"","Deadline":"","Assigned To":"","Status":"Pending"};
-  var [form,setForm]=useState(props.sheet==="AMC"?defAMC:props.sheet==="Quality"?defQual:defLic);
+  var qp=props.qualPreset||null;
+  var qualInit=qp?Object.assign({},defQual,{"Activity Type":qp.activityType,"Sub-Category":qp.subCategory,"Sub-Type":qp.subType||"","Frequency":qp.frequency}):defQual;
+  var [form,setForm]=useState(props.sheet==="AMC"?defAMC:props.sheet==="Quality"?qualInit:defLic);
   var [tmpl,setTmpl]=useState("");
   var [tmplApplied,setTmplApplied]=useState(false);
   var [errors,setErrors]=useState({});
@@ -651,10 +699,6 @@ function AddModal(props){
     if(props.sheet==="AMC"){
       var t=AMC_TMPL[key];
       if(t){setForm(function(p){return Object.assign({},p,{"Equipment Name":t.namePrefix,"Frequency":t.frequency,"AMC Period":t.amcPeriod});});setTmplApplied(true);}
-    } else if(props.sheet==="Quality"){
-      var qmap={"Training":{frequency:"Annual",scheduledDate:""},"Daily Housekeeping":{frequency:"Daily",scheduledDate:todayISO()},"Fortnightly Housekeeping":{frequency:"Fortnightly",scheduledDate:""}};
-      var qd=qmap[key];
-      if(qd){setForm(function(p){return Object.assign({},p,{"Activity Type":key,"Frequency":qd.frequency,"Scheduled Date":qd.scheduledDate||""});});setTmplApplied(true);}
     }
   }
   function validate(){
@@ -693,7 +737,7 @@ function AddModal(props){
   ];
   var qualF=[
     {k:"Activity Name",l:"Activity Name",t:"text",req:true},
-    {k:"Activity Type",l:"Activity Type",t:"sel",o:["Training","Daily Housekeeping","Fortnightly Housekeeping"]},
+    {k:"Activity Type",l:"Activity Type",t:"sel",o:["Training","Daily Housekeeping","Fortnightly Housekeeping","PCI"]},
     {k:"Sub-Category",l:"Sub-Category",t:"sel",o:["Housekeeping","Pest Control","Training"]},
     {k:"Description",l:"Description",t:"area",help:"Describe what this activity involves"},
     {k:"Frequency",l:"Frequency",t:"sel",o:["Daily","Weekly","Fortnightly","Monthly","Quarterly","Annual","One-Time"]},
@@ -702,7 +746,8 @@ function AddModal(props){
     {k:"Deadline",l:"Deadline",t:"date",help:"Target completion date — flagged Overdue if passed"},
     {k:"Assigned To",l:"Assign To",t:"text"},{k:"Status",l:"Status",t:"sel",o:["Pending","Planned","Completed","Validated"]},
   ];
-  var fields=props.sheet==="AMC"?amcF:props.sheet==="Quality"?qualF:licF;
+  var qualFVisible=qp?qualF.filter(function(f){var hide=["Activity Type","Sub-Category","Sub-Type"];if(qp.lockFrequency)hide.push("Frequency");return hide.indexOf(f.k)===-1;}):qualF;
+  var fields=props.sheet==="AMC"?amcF:props.sheet==="Quality"?qualFVisible:licF;
   var inp={width:"100%",padding:"9px 12px",border:"1.5px solid #D0E8F5",borderRadius:8,fontSize:13,color:DARK,fontFamily:"Inter,sans-serif",boxSizing:"border-box",background:"white"};
   var inpErr={border:"1.5px solid #EF4444"};
   return(
@@ -712,21 +757,31 @@ function AddModal(props){
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
             <div>
               <div className="eyebrow">{props.sheet} · Add New</div>
-              <div className="modal-title">New {props.sheet==="AMC"?"AMC Record":props.sheet==="Quality"?"Quality Activity":"Licence / Agreement"}</div>
+              <div className="modal-title">{qp?qp.label:"New "+(props.sheet==="AMC"?"AMC Record":props.sheet==="Quality"?"Quality Activity":"Licence / Agreement")}</div>
             </div>
             <button onClick={props.onClose} style={{background:"#F0F8FF",border:"none",width:32,height:32,borderRadius:8,fontSize:16,color:GRAY,cursor:"pointer"}}><i className="ti ti-x" aria-hidden="true"/></button>
           </div>
-          {/* Template selector */}
-          {(props.sheet==="AMC"||props.sheet==="Quality")&&(
+          {/* Category banner — Quality quick-add via a preset (no dropdown, category already chosen) */}
+          {props.sheet==="Quality"&&qp&&(
+            <div style={{marginBottom:12,padding:"10px 14px",borderRadius:10,background:qp.bg,border:"1px solid "+qp.color,display:"flex",alignItems:"center",gap:10}}>
+              <i className={"ti "+qp.icon} aria-hidden="true" style={{fontSize:18,color:qp.color}}/>
+              <div><div style={{fontSize:12.5,fontWeight:700,color:qp.color}}>{qp.label}</div><div style={{fontSize:11,color:GRAY}}>{qp.desc}</div></div>
+            </div>
+          )}
+          {/* Template selector — AMC only now; Quality categories replace this for the Quality sheet */}
+          {props.sheet==="AMC"&&(
             <div style={{marginBottom:12}}>
               <label style={{fontSize:10,fontWeight:700,color:NAVY,display:"block",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.07em",display:"inline-flex",alignItems:"center",gap:5}}><i className="ti ti-bolt" aria-hidden="true" style={{fontSize:13}}/>Quick Template</label>
               <select value={tmpl} onChange={function(e){applyTemplate(e.target.value);}} style={Object.assign({},inp,{border:"1.5px solid #A7F3D0",background:"#F0FDF4"})}>
                 <option value="">— Select to pre-fill fields —</option>
-                {props.sheet==="AMC"&&Object.keys(AMC_TMPL).map(function(k){return <option key={k} value={k}>{k}</option>;})}
-                {props.sheet==="Quality"&&["Training","Daily Housekeeping","Fortnightly Housekeeping"].map(function(k){return <option key={k} value={k}>{k}</option>;})}
+                {Object.keys(AMC_TMPL).map(function(k){return <option key={k} value={k}>{k}</option>;})}
               </select>
               {tmplApplied&&<span className="tmpl-badge" style={{display:"inline-flex",alignItems:"center",gap:5}}><i className="ti ti-circle-check" aria-hidden="true" style={{fontSize:13}}/>Template applied — edit any field as needed</span>}
             </div>
+          )}
+          {/* Quality sheet with no preset (shouldn't normally happen — safety net so the form still works) */}
+          {props.sheet==="Quality"&&!qp&&(
+            <div style={{marginBottom:12,padding:"9px 12px",background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:8,fontSize:12,color:"#92400E"}}>No category selected — pick Activity Type / Sub-Category below manually.</div>
           )}
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:10,maxHeight:"50vh",overflowY:"auto",paddingRight:4}}>
             {fields.filter(function(f){return !f.showIf||f.showIf(form);}).map(function(f){
@@ -3427,6 +3482,8 @@ function App(){
   var [expanded,setExpanded]=useState({});
   var [editRecord,setEditRecord]=useState(null);
   var [addSheet,setAddSheet]=useState(null);
+  var [qualPreset,setQualPreset]=useState(null);
+  var [qualPickerOpen,setQualPickerOpen]=useState(false);
   var [trainingModal,setTrainingModal]=useState(null);
   var [bulkTrainingOpen,setBulkTrainingOpen]=useState(false);
   var [bulkAMC,setBulkAMC]=useState(null);
@@ -3645,15 +3702,15 @@ function App(){
   var role=authUser.role;
   if(role==="Operator")role="Staff";  // "Operator" accounts get Staff-level permissions
   var rc=RC[role]||RC.Staff;
-  var isViewer=(role==="Head"||role==="Viewer"||role==="RDM"||role==="CFA Owner"||role==="Company View");
+  var isViewer=(role==="Viewer"||role==="RDM"||role==="CFA Owner"||role==="Company View");
   // Multi-hub overseers whose ENTIRE left bar = their (scoped) control room only.
   // They land on the network overview and drill into a hub to see its module tabs.
   var isCompanyView=(role==="Company View");
   var isRDM=(role==="RDM");
   var isScopedOverseer=(isCompanyView||isRDM);
-  var canValidate=(role==="Manager"||role==="Quality Manager");
-  var canSubmit=(role==="Staff"||role==="Coordinator"||role==="Supervisor"||role==="Manager"||role==="Quality Manager");
-  var canSetup=(role==="Manager"||role==="Coordinator"||role==="Quality Manager");
+  var canValidate=(role==="Manager"||role==="Quality Manager"||role==="Head");
+  var canSubmit=(role==="Staff"||role==="Coordinator"||role==="Supervisor"||role==="Manager"||role==="Quality Manager"||role==="Head");
+  var canSetup=(role==="Manager"||role==="Coordinator"||role==="Quality Manager"||role==="Head");
   var canEdit=(role==="Manager"||role==="Coordinator"||role==="Head"||role==="Quality Manager");
   var canAdd=(role==="Manager"||role==="Coordinator"||role==="Head"||role==="Quality Manager");
   // Hub list = hardcoded originals + any added via the Add-Hub wizard. Deduped by
@@ -3667,7 +3724,7 @@ function App(){
   var canDelete=(role==="Manager"||role==="Head"||role==="Quality Manager");
   var canScheduleNext=(role==="Manager"||role==="Coordinator"||role==="Head"||role==="Quality Manager");
   var canManageUsers=(role==="Manager"||role==="Head");
-  var canManageTraining=(role==="Manager"||role==="Quality Manager"||role==="Coordinator");
+  var canManageTraining=(role==="Manager"||role==="Quality Manager"||role==="Coordinator"||role==="Head");
   var canViewKPI=(role==="Manager"||role==="Head"||role==="Quality Manager");
   // RDM Console (the standalone person-by-person view) stays for Head + CFA Owner.
   // The RDM role itself no longer gets it as a separate tab: an RDM's whole left bar
@@ -4058,10 +4115,10 @@ function App(){
   function onBulkLicFile(e){var f=e.target.files&&e.target.files[0];if(!f)return;var r=new FileReader();r.onload=function(ev){var res=parseLicCSV(ev.target.result);setBulkLic({rows:res.rows,error:res.error,busy:false});};r.readAsText(f);}
   async function importBulkLic(){if(!bulkLic||!bulkLic.rows.length)return;setBulkLic(function(b){return Object.assign({},b,{busy:true});});try{var CHUNK=450,rows=bulkLic.rows;for(var s=0;s<rows.length;s+=CHUNK){var batch=db.batch();rows.slice(s,s+CHUNK).forEach(function(r){batch.set(db.collection("licences").doc(),Object.assign({},r,{locationId:authUser.locationId||""}));});await batch.commit();}await logActivity("add","Licences","Bulk import",bulkLic.rows.length+" licence records imported by "+authUser.name,authUser.name,authUser.role,authUser.locationId||"");var cnt=bulkLic.rows.length;setBulkLic(null);addToast(cnt+" licence records imported","success");}catch(e){console.error("[bulkLic]",e);setBulkLic(function(b){return Object.assign({},b,{busy:false,error:"Import failed: "+((e&&e.message)||e)});});}}
   // ── Bulk CSV import: Quality ──
-  function downloadQualTemplate(){var csv="Activity Type,Activity Name,Sub-Category,Sub-Type,Frequency,Scheduled Date,Status\nDaily Housekeeping,Area Cleaning,Cold Store,,Daily,2026-07-01,Pending\nFortnightly Housekeeping,Deep Clean,Cold Store,Housekeeping,Fortnightly,2026-07-14,Pending\n";var a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download="quality_template.csv";a.click();}
+  function downloadQualTemplate(){var csv="Activity Type,Activity Name,Sub-Category,Sub-Type,Frequency,Scheduled Date,Status\nDaily Housekeeping,Area Cleaning,Cold Store,,Daily,2026-07-01,Pending\nFortnightly Housekeeping,Deep Clean,Cold Store,Housekeeping,Fortnightly,2026-07-14,Pending\nPCI,Pest Control Round,Cold Store,,Fortnightly,2026-07-14,Pending\nTraining,Cold Chain Handling,Training,,Annual,2026-08-01,Pending\n";var a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download="quality_template.csv";a.click();}
   /* [Q1] Sub-Type is column index 3 (optional). Only kept for Fortnightly rows; defaults to the
           first configured sub-type when a Fortnightly row leaves it blank. */
-  function parseQualCSV(text){var raw=String(text).replace(/^﻿/,"");var lines=raw.split(/\r?\n/).filter(function(l){return l.trim()!=="";});if(lines.length<2)return{rows:[],error:"File needs a header row + at least one data row."};var out=[],errs=[];for(var i=1;i<lines.length;i++){var cols=splitCSVLine(lines[i]);var name=String(cols[1]||"").trim();if(!name){errs.push("Row "+(i+1)+": missing Activity Name");continue;}var freq=String(cols[4]||"").trim();var subType=freq==="Fortnightly"?(String(cols[3]||"").trim()||QUALITY_SUBTYPES[0]):"";out.push({activityType:String(cols[0]||"").trim(),activityName:name,subCategory:String(cols[2]||"").trim(),subType:subType,frequency:freq,scheduledDate:String(cols[5]||"").trim(),status:String(cols[6]||"Pending").trim()||"Pending"});}return{rows:out,error:errs.length?errs.join("; "):""};}
+  function parseQualCSV(text){var raw=String(text).replace(/^﻿/,"");var lines=raw.split(/\r?\n/).filter(function(l){return l.trim()!=="";});if(lines.length<2)return{rows:[],error:"File needs a header row + at least one data row."};var out=[],errs=[];for(var i=1;i<lines.length;i++){var cols=splitCSVLine(lines[i]);var name=String(cols[1]||"").trim();if(!name){errs.push("Row "+(i+1)+": missing Activity Name");continue;}var freq=String(cols[4]||"").trim();var atype=String(cols[0]||"").trim();var subType=(atype==="Fortnightly Housekeeping"&&freq==="Fortnightly")?(String(cols[3]||"").trim()||QUALITY_SUBTYPES[0]):"";out.push({activityType:atype,activityName:name,subCategory:String(cols[2]||"").trim(),subType:subType,frequency:freq,scheduledDate:String(cols[5]||"").trim(),status:String(cols[6]||"Pending").trim()||"Pending"});}return{rows:out,error:errs.length?errs.join("; "):""};}
   function onBulkQualFile(e){var f=e.target.files&&e.target.files[0];if(!f)return;var r=new FileReader();r.onload=function(ev){var res=parseQualCSV(ev.target.result);setBulkQual({rows:res.rows,error:res.error,busy:false});};r.readAsText(f);}
   async function importBulkQual(){if(!bulkQual||!bulkQual.rows.length)return;setBulkQual(function(b){return Object.assign({},b,{busy:true});});try{var CHUNK=450,rows=bulkQual.rows;for(var s=0;s<rows.length;s+=CHUNK){var batch=db.batch();rows.slice(s,s+CHUNK).forEach(function(r){batch.set(db.collection("quality").doc(),Object.assign({},r,{locationId:authUser.locationId||""}));});await batch.commit();}await logActivity("add","Quality","Bulk import",bulkQual.rows.length+" quality records imported by "+authUser.name,authUser.name,authUser.role,authUser.locationId||"");var cnt=bulkQual.rows.length;setBulkQual(null);addToast(cnt+" quality records imported","success");}catch(e){console.error("[bulkQual]",e);setBulkQual(function(b){return Object.assign({},b,{busy:false,error:"Import failed: "+((e&&e.message)||e)});});}}
   // ── Bulk CSV import: Training ──
@@ -4342,7 +4399,8 @@ function App(){
 
       {editRecord&&<EditModal record={editRecord.record} sheet={editRecord.sheet} onClose={function(){setEditRecord(null);}} onSave={handleSaveEdit} saving={saving}/>}
       {assignModal&&<AssignModal task={assignModal.task} sheet={assignModal.sheet} users={usersList} saving={saving} onClose={function(){setAssignModal(null);setAssignTo("");}} onAssign={function(name){setAssignTo(name);setTimeout(handleAssign,0);}}/>}
-      {addSheet&&<AddModal sheet={addSheet} onClose={function(){setAddSheet(null);}} onSave={handleSaveAdd} saving={saving}/>}
+      {addSheet&&<AddModal sheet={addSheet} qualPreset={qualPreset} onClose={function(){setAddSheet(null);setQualPreset(null);}} onSave={handleSaveAdd} saving={saving}/>}
+      {qualPickerOpen&&<QualityCategoryPicker onClose={function(){setQualPickerOpen(false);}} onPick={function(cat){setQualPreset(cat);setAddSheet("Quality");setQualPickerOpen(false);}}/>}
       {deleteRecord&&<DeleteConfirm record={deleteRecord.record} sheet={deleteRecord.sheet} onClose={function(){setDeleteRecord(null);}} onConfirm={handleConfirmDelete} onHardDelete={handleHardDelete} saving={saving}/>}
       {changePw&&<ChangePwModal onClose={function(){setChangePw(false);setChangePwErr("");}} onSave={handleChangePassword} err={changePwErr}/>}
       {resetPwUser&&<AdminResetPwModal user={resetPwUser} onClose={function(){setResetPwUser(null);}} onSave={handleResetUserPassword}/>}
@@ -4929,7 +4987,7 @@ function App(){
                 <div style={{flex:1}}><SearchBar value={searchQuery} onChange={setSearchQuery} placeholder="Search activities, type, assignee, status…"/></div>
                 {canAdd&&<button onClick={downloadQualTemplate} style={{padding:"10px 14px",background:"#EBF5FB",color:NAVY,border:"1px solid #BBDEFB",borderRadius:12,fontSize:13,fontWeight:700,cursor:"pointer",flexShrink:0,whiteSpace:"nowrap"}}><i className="ti ti-download" aria-hidden="true" style={{fontSize:14,verticalAlign:"-2px",marginRight:5}}/>Template</button>}
                 {canAdd&&<button onClick={function(){setBulkQual({rows:[],error:"",busy:false});}} style={{padding:"10px 14px",background:"#EBF5FB",color:NAVY,border:"1px solid #BBDEFB",borderRadius:12,fontSize:13,fontWeight:700,cursor:"pointer",flexShrink:0,whiteSpace:"nowrap"}}><i className="ti ti-upload" aria-hidden="true" style={{fontSize:14,verticalAlign:"-2px",marginRight:5}}/>Bulk Upload</button>}
-                {canAdd&&<button onClick={function(){setAddSheet("Quality");setSearchQuery("");}} style={{padding:"10px 18px",background:"linear-gradient(135deg,#10B981,#059669)",color:"white",border:"none",borderRadius:12,fontSize:13,fontWeight:700,cursor:"pointer",flexShrink:0,whiteSpace:"nowrap"}}>+ Add Activity</button>}
+                {canAdd&&<button onClick={function(){setQualPickerOpen(true);setSearchQuery("");}} style={{padding:"10px 18px",background:"linear-gradient(135deg,#10B981,#059669)",color:"white",border:"none",borderRadius:12,fontSize:13,fontWeight:700,cursor:"pointer",flexShrink:0,whiteSpace:"nowrap"}}>+ Add Activity</button>}
               </div>
               <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14}}>
                 <div className="seg-bar">{WORKFLOW_TABS.quality.map(function(f){var c=stCount("quality",qual,f.k);return(<button key={f.k} onClick={function(){setFilter(f.k);}} className={filter===f.k?"sel":""}>{f.k}{f.k!=="All"&&c>0?" ("+c+")":""}</button>);})}</div>
@@ -4937,11 +4995,11 @@ function App(){
               {(function(){
                 var filteredQual=qual.filter(function(t){var q=searchQuery.toLowerCase();var matchSearch=!searchQuery||(t["Activity Name"]||"").toLowerCase().includes(q)||(t["Activity Type"]||"").toLowerCase().includes(q)||(t["Status"]||"").toLowerCase().includes(q)||(t["Assigned To"]||"").toLowerCase().includes(q);var matchFilter=stMatch("quality",filter,t["Status"]);return matchSearch&&matchFilter;});
                 if(filteredQual.length===0)return <div style={{textAlign:"center",padding:"40px",color:GRAY,fontSize:14}}>No activities match.</div>;
-                return ["Training","Daily Housekeeping","Fortnightly Housekeeping"].map(function(section){
+                return ["Training","Daily Housekeeping","Fortnightly Housekeeping","PCI"].map(function(section){
                   var items=filteredQual.filter(function(t){return String(t["Activity Type"])===section;});
                   if(items.length===0)return null;
-                  var sc2=section==="Training"?"#1565C0":section==="Daily Housekeeping"?"#2E7D32":"#003865";
-                  var sb2=section==="Training"?"#E3F2FD":section==="Daily Housekeeping"?"#E8F5E9":"#EDE7F6";
+                  var sc2=section==="Training"?"#1565C0":section==="Daily Housekeeping"?"#2E7D32":section==="PCI"?"#B45309":"#003865";
+                  var sb2=section==="Training"?"#E3F2FD":section==="Daily Housekeeping"?"#E8F5E9":section==="PCI"?"#FEF3C7":"#EDE7F6";
                   var doneCount=items.filter(function(t){return["Completed","Validated"].indexOf(String(t["Status"]))>-1;}).length;
                   var overdueCount=items.filter(function(t){return String(t["Status"])==="Overdue";}).length;
                   var SP={Overdue:0,Pending:1,Planned:2,Submitted:3,Validated:4,Completed:5};

@@ -124,9 +124,10 @@ var useEffect = React.useEffect;
 /* ── VERSION CONTROL (requirement #4) ──
    Bump APP_VERSION + prepend a CHANGELOG entry on every release.
    Displayed in the sidebar; full history shown via the version badge. */
-var APP_VERSION = "1.13.0";
-var APP_UPDATED = "2026-07-28";
+var APP_VERSION = "1.13.1";
+var APP_UPDATED = "2026-07-29";
 var APP_CHANGELOG = [
+  { v:"1.13.1", date:"2026-07-29", by:"Head (BOSSMANPOSH)", note:"Data-integrity fix: closes the gap found in the 2026-07-29 AMC data audit (7 records showing Completed/Validated status alongside a Next Service Due Date that had already passed, e.g. DG Set 320 KVA, AHU-01A through 01F). Two loopholes closed. (1) Edit form: setting Status to Completed/Validated on an AMC or Quality record now requires the module's due-date field (Next Service Due Date / Scheduled Date) to be filled in and not in the past — this was the direct route that created the 7 broken records, since Edit lets Status change with no other checks. (2) Validate & Close quick action: if the record's existing due date has already passed, the next-due-date field (auto-calculated from Frequency, previously optional — help text said 'leave blank to simply close') now must be set before the action can be confirmed; genuinely one-time items whose due date isn't yet stale can still be closed with the field left blank, unchanged. Neither check touches AMC/Quality records that are already in a consistent state — only blocks the specific move that would put one into the same contradiction found in the audit." },
   { v:"1.13.0", date:"2026-07-28", by:"Head (BOSSMANPOSH)", note:"Quality tab redesign + Head permissions. (1) '+ Add Activity' no longer opens one form with a nested Activity Type → Sub-Category → Sub-Type dropdown chain — it opens a category picker (Daily Housekeeping / Housekeeping (Fortnightly) / PCI / Plan a Training); picking a card pre-fills the record and hides the now-redundant category fields, so adding one activity is a single click plus the details that are actually unique to it. (2) PCI is now its own top-level Activity Type (previously only reachable as a Sub-Type buried under Frequency = Fortnightly on 'Fortnightly Housekeeping') — it gets its own section in the Quality Activities list, its own colour, and its own CSV template row. Existing records saved as Fortnightly Housekeeping + Sub-Type=PCI are untouched and still display correctly. (3) Fixed a bug the redesign would otherwise have hit: Sub-Type was being force-defaulted to 'Housekeeping' for ANY Fortnightly-frequency Quality record (Add form and CSV bulk-import) — it's now only auto-set for the 'Fortnightly Housekeeping' activity type specifically, so new PCI/Training records never get mislabelled. (4) Head is now a true super-admin: previously Head was grouped with read-only roles (Viewer/RDM/CFA Owner/Company View) for the maker-checker workflow and was excluded from Training Matrix management, meaning Head could add/edit/delete AMC, Licence and Quality records but couldn't Submit Evidence, Validate, or manage the Training Matrix at all (no Add/Bulk Assign/Bulk Import, couldn't click a matrix cell). Head now has every permission in the app." },
   { v:"1.12.0", date:"2026-07-16", by:"Head (BOSSMANPOSH)", note:"Quality module + workflow upgrade. (1) Fortnightly Sub-Type: selecting Frequency = Fortnightly on a Quality activity now shows an 'Activity Sub-Type' dropdown (Housekeeping / PCI, extensible) — stored on the activity, shown as a chip in the list, and available as an optional Sub-Type column in the Quality bulk-upload CSV. (2) Quality alert window narrowed: Quality activities now alert only 3 days before and on the due date itself (previously 30/15/7/5/3/1), both in-app and in the daily email — AMC, Licences and Training thresholds are unchanged. (3) Workflow tabs: the AMC, Quality and Licences filter bars are now action-oriented stages with live counts — All / Pending / Awaiting Validation / Closed (Licences: All / Active / Awaiting Validation / Expired) — instead of a flat list of every raw status. (4) Quick actions: the primary action (Validate & Close, Submit Evidence, etc.) now appears directly on each collapsed row, so a Manager on the 'Awaiting Validation' tab can act without opening each record first. (5) Performance: app logo re-compressed (~54KB smaller file, ~24% less to download) and repeated label styles moved into shared CSS classes. No change to any existing workflow, permission or data." },
   { v:"1.11.0", date:"2026-07-10", by:"Head (BOSSMANPOSH)", note:"Login hardening. (1) Server-side rate limiting: after 8 consecutive wrong passwords an account is locked for 10 minutes (counters live on the non-readable userSecrets doc; fail-open so a glitch can never permanently bar a user). (2) Forced password change on first login and after an admin reset: new/reset accounts must replace the temporary password on a mandatory full-screen gate before the app loads (backed by sessionStorage so a reload can't bypass it). (3) The hub-wizard 'default password' is now a random 10-character temporary secret instead of the fixed 'Tracker@123'. Requires deploying the login/createUser/setPassword Cloud Functions (done)." },
@@ -577,7 +578,29 @@ function SearchBar(props){
 ══════════════════════════════════════════ */
 function EditModal(props){
   var [form,setForm]=useState(Object.assign({},props.record));
-  function upd(k,v){setForm(function(p){return Object.assign({},p,{[k]:v});});}
+  var [errors,setErrors]=useState({});
+  function upd(k,v){setForm(function(p){return Object.assign({},p,{[k]:v});});setErrors(function(p){var n=Object.assign({},p);delete n[k];return n;});}
+  /* [Q4] 2026-07-29 — Editing Status directly to Completed/Validated is the loophole that
+          created the "done but the due date is still in the past" contradictions found in the
+          AMC data audit (it bypasses the Validate & Close flow that normally advances the date).
+          Block save here the same way: Completed/Validated requires the module's due-date field
+          to be present and not in the past. */
+  function isPastDate(dstr){if(!dstr)return false;var dd=parseGDate(dstr);if(!dd)return false;var today=new Date();today.setHours(0,0,0,0);return dd<today;}
+  function validate(){
+    var e={};
+    if(props.sheet==="AMC"&&["Completed","Validated"].indexOf(String(form["Status"]))>-1){
+      var nd=form["Next Service Due Date"]||"";
+      if(!nd)e["Next Service Due Date"]="Required when Status is Completed/Validated";
+      else if(isPastDate(nd))e["Next Service Due Date"]="Still in the past — advance to the next service date";
+    }
+    if(props.sheet==="Quality"&&["Completed","Validated"].indexOf(String(form["Status"]))>-1){
+      var sd=form["Scheduled Date"]||"";
+      if(!sd)e["Scheduled Date"]="Required when Status is Completed/Validated";
+      else if(isPastDate(sd))e["Scheduled Date"]="Still in the past — advance to the next scheduled date";
+    }
+    return e;
+  }
+  function trySave(){var e=validate();if(Object.keys(e).length){setErrors(e);return;}props.onSave(form);}
   var amcHelp={"Equipment Name":"Full name including model/unit number","Frequency":"Used to auto-calculate next service date after validation","Approved Vendor Name":"Must match Abbott-approved vendor list","Evidence File":"Upload photo or doc as evidence for audit"};
   var licHelp={"Expiry Date":"System will auto-alert 30 days before expiry","Renewal Due Date":"Set a reminder ahead of official expiry"};
   var qualHelp={"Scheduled Date":"System will auto-mark Overdue if date passes without completion","Frequency":"How often this activity repeats"};
@@ -628,12 +651,13 @@ function EditModal(props){
                 <div key={f.k} style={{gridColumn:(f.t==="area"||f.t==="check")?"1/-1":"auto"}}>
                   <label className="fld-lbl">{f.l}{f.req&&<span className="req-star">*</span>}</label>
                   {f.t==="text"&&<input value={form[f.k]||""} onChange={function(e){upd(f.k,e.target.value);}} style={inp}/>}
-                  {f.t==="date"&&!(f.k==="Expiry Date"&&props.sheet==="Licenses")&&<input type="date" value={toInputDate(form[f.k]||"")} onChange={function(e){upd(f.k,e.target.value);}} style={inp}/>}
+                  {f.t==="date"&&!(f.k==="Expiry Date"&&props.sheet==="Licenses")&&<input type="date" value={toInputDate(form[f.k]||"")} onChange={function(e){upd(f.k,e.target.value);}} style={Object.assign({},inp,errors[f.k]?{border:"1.5px solid #EF4444"}:{})}/>}
                   {f.t==="date"&&f.k==="Expiry Date"&&props.sheet==="Licenses"&&(<React.Fragment><label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",marginBottom:6,padding:"4px 0"}}><input type="checkbox" checked={String(form["Expiry Date"]||"")==="Lifetime"} onChange={function(e){upd("Expiry Date",e.target.checked?"Lifetime":"");}} style={{width:15,height:15,cursor:"pointer",accentColor:"#059669"}}/><span style={{fontSize:12,color:"#065F46",fontWeight:600}}>Lifetime licence (no expiry date)</span></label>{String(form["Expiry Date"]||"")!=="Lifetime"&&<input type="date" value={toInputDate(form["Expiry Date"]||"")} onChange={function(e){upd("Expiry Date",e.target.value);}} style={inp}/>}{String(form["Expiry Date"]||"")==="Lifetime"&&<div style={{padding:"8px 10px",background:"#ECFDF5",border:"1px solid #A7F3D0",borderRadius:8,fontSize:12,color:"#065F46",fontWeight:700,display:"flex",alignItems:"center",gap:6}}><i className="ti ti-infinity" aria-hidden="true" style={{fontSize:15}}/>Lifetime — excluded from all expiry alerts</div>}</React.Fragment>)}
                   {f.t==="sel"&&<select value={form[f.k]||""} onChange={function(e){upd(f.k,e.target.value);}} style={inp}>{f.o.map(function(o){return <option key={o} value={o}>{o}</option>;})}</select>}
                   {f.t==="area"&&<textarea value={form[f.k]||""} onChange={function(e){upd(f.k,e.target.value);}} rows={2} style={Object.assign({},inp,{resize:"vertical"})}/>}
                   {f.t==="check"&&<label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",padding:"8px 0"}}><input type="checkbox" checked={!!form[f.k]} onChange={function(e){upd(f.k,e.target.checked);}} style={{width:16,height:16,cursor:"pointer",accentColor:"#007AC2"}}/><span style={{fontSize:12,color:GRAY}}>Include this licence in the Breakup register</span></label>}
-                  {helpMap[f.k]&&<div className="help-text">{helpMap[f.k]}</div>}
+                  {errors[f.k]&&<div style={{fontSize:10,color:"#EF4444",marginTop:2,display:"flex",alignItems:"center",gap:4}}><i className="ti ti-alert-circle" aria-hidden="true" style={{fontSize:11}}/>{errors[f.k]}</div>}
+                  {helpMap[f.k]&&!errors[f.k]&&<div className="help-text">{helpMap[f.k]}</div>}
                 </div>
               );
             })}
@@ -641,7 +665,7 @@ function EditModal(props){
         </div>
         <div style={{padding:"14px 22px 22px",display:"flex",gap:10,justifyContent:"flex-end"}}>
           <button onClick={props.onClose} style={{padding:"10px 20px",fontSize:13,borderRadius:10,border:"1px solid #E0D4EC",background:"white",color:GRAY,cursor:"pointer"}}>Cancel</button>
-          <button onClick={function(){props.onSave(form);}} disabled={props.saving} style={{padding:"10px 22px",fontSize:13,background:"linear-gradient(135deg,#003865,#007AC2)",color:"white",border:"none",borderRadius:10,fontWeight:700,opacity:props.saving?0.6:1,cursor:"pointer"}}>{props.saving?"Saving…":"Save Changes"}</button>
+          <button onClick={trySave} disabled={props.saving} style={{padding:"10px 22px",fontSize:13,background:"linear-gradient(135deg,#003865,#007AC2)",color:"white",border:"none",borderRadius:10,fontWeight:700,opacity:props.saving?0.6:1,cursor:"pointer"}}>{props.saving?"Saving…":"Save Changes"}</button>
         </div>
       </div>
     </div>
@@ -4288,7 +4312,21 @@ function App(){
 
   /* derived: SOP validation for action modal submit button */
   var submitOK=modal&&modal.key==="submit"?(!!evidenceFile||comment.trim().length>=5):true;
-  var validateOK=modal&&modal.key==="validate"?comment.trim().length>=10:true;
+  /* [Q4] 2026-07-29 — Validate & Close must not leave a Completed/Validated record showing a
+          stale due date. planDate can still be left blank to close a genuinely one-time item
+          (unchanged behavior) — but only if that item's existing due date isn't ALREADY in the
+          past; if it is, closing without advancing it would recreate the exact "done but overdue"
+          contradiction found in the AMC data audit, so we require a date in that case. Any
+          planDate that IS given must itself not be in the past. */
+  function isPastDate(dstr){if(!dstr)return false;var dd=parseGDate(dstr);if(!dd)return false;var today=new Date();today.setHours(0,0,0,0);return dd<today;}
+  var validateNeedsDate=(function(){
+    if(!(modal&&modal.key==="validate"&&(modal.sheet==="AMC"||modal.sheet==="Quality")))return false;
+    if(planDate)return false;
+    var origDue=modal.sheet==="AMC"?(modal.task&&modal.task["Next Service Due Date"]):(modal.task&&modal.task["Scheduled Date"]);
+    return isPastDate(origDue);
+  })();
+  var validatePlanDatePast=modal&&modal.key==="validate"&&(modal.sheet==="AMC"||modal.sheet==="Quality")&&!!planDate&&isPastDate(planDate);
+  var validateOK=modal&&modal.key==="validate"?(comment.trim().length>=10&&!validateNeedsDate&&!validatePlanDatePast):true;
   var sendbackOK=modal&&modal.key==="sendback"?comment.trim().length>=10:true;
   var renewOK=modal&&modal.key==="renew"?!!planDate:true;
   var scheduleOK=modal&&modal.key==="schedule"?!!planDate:true;
@@ -4376,8 +4414,10 @@ function App(){
               {modal.key==="validate"&&(modal.sheet==="AMC"||modal.sheet==="Quality")&&(
                 <div style={{marginBottom:16}}>
                   <label style={{fontSize:11,fontWeight:700,color:"#7C3AED",display:"block",marginBottom:7,textTransform:"uppercase",letterSpacing:"0.07em"}}>{modal.sheet==="Quality"?"Next Scheduled Date":"Next Service Due Date"} <span style={{fontWeight:400,color:"#9CA3AF",textTransform:"none",letterSpacing:0}}>(auto-calculated — adjust if needed)</span></label>
-                  <input type="date" value={planDate} onChange={function(e){setPlanDate(e.target.value);setAutoSchedInfo("");}} style={{width:"100%",padding:"12px 16px",border:"2px solid #DDD6FE",borderRadius:10,fontSize:14,color:DARK}}/>
+                  <input type="date" value={planDate} onChange={function(e){setPlanDate(e.target.value);setAutoSchedInfo("");}} style={{width:"100%",padding:"12px 16px",border:"2px solid "+((validateNeedsDate||validatePlanDatePast)?"#EF4444":"#DDD6FE"),borderRadius:10,fontSize:14,color:DARK}}/>
                   {autoSchedInfo&&<div className="sop-ok" style={{marginTop:8,display:"flex",alignItems:"center",gap:5}}><i className="ti ti-calendar-event" aria-hidden="true" style={{fontSize:13,flexShrink:0}}/>{autoSchedInfo}</div>}
+                  {validateNeedsDate&&<div style={{marginTop:8,fontSize:12,color:"#B91C1C",display:"flex",alignItems:"center",gap:5}}><i className="ti ti-alert-circle" aria-hidden="true" style={{fontSize:13,flexShrink:0}}/>This item's current due date has already passed — set the next due date before closing it, so it doesn't stay marked done with an overdue date.</div>}
+                  {validatePlanDatePast&&<div style={{marginTop:8,fontSize:12,color:"#B91C1C",display:"flex",alignItems:"center",gap:5}}><i className="ti ti-alert-circle" aria-hidden="true" style={{fontSize:13,flexShrink:0}}/>This date is in the past — the next due date must be today or later.</div>}
                   <div className="help-text">{modal.sheet==="Quality"?"Setting this re-opens the activity for its next cycle (previous evidence archived). Leave blank to simply close.":"Setting this re-opens the AMC cycle with the next service date. Leave blank to simply close."}</div>
                 </div>
               )}

@@ -124,9 +124,10 @@ var useEffect = React.useEffect;
 /* ── VERSION CONTROL (requirement #4) ──
    Bump APP_VERSION + prepend a CHANGELOG entry on every release.
    Displayed in the sidebar; full history shown via the version badge. */
-var APP_VERSION = "1.13.1";
+var APP_VERSION = "1.13.2";
 var APP_UPDATED = "2026-07-29";
 var APP_CHANGELOG = [
+  { v:"1.13.2", date:"2026-07-29", by:"Head (BOSSMANPOSH)", note:"Status-tag consistency fixes, following up on the AMC audit. (1) Quality's Edit form was missing 'Submitted' and 'Overdue' from its Status dropdown even though records genuinely reach those states (via Submit Evidence, and via auto-computed overdue) — editing such a record showed a misleading default-selected value. Dropdown now matches AMC's full list: Pending / Planned / Submitted / Validated / Completed / Overdue. (2) Licences' Edit form had the same gap — was missing 'Submitted' and 'Validated', now Active / Submitted / Validated / Expired. Add-New forms for both were left as-is (Submitted/Overdue/Validated don't make sense to pre-set on a brand-new record). (3) The small RAG chip shown next to the main status Badge on AMC/Quality rows used to read effDeadline(), which silently falls back to the SAME due-date field the Badge already reads — so most rows carried two independent 'how urgent' labels off one date, which could disagree with each other at the edges and generally read as contradictory. It now only reads the actual, separate Deadline field, only shows when that field is explicitly set AND actually urgent, is labeled 'Deadline …' so it can't be mistaken for a second status, and never shows once a record is Completed/Validated. effDeadline() and the never-rendered dlChip() helper (dead code, no call sites) were removed." },
   { v:"1.13.1", date:"2026-07-29", by:"Head (BOSSMANPOSH)", note:"Data-integrity fix: closes the gap found in the 2026-07-29 AMC data audit (7 records showing Completed/Validated status alongside a Next Service Due Date that had already passed, e.g. DG Set 320 KVA, AHU-01A through 01F). Two loopholes closed. (1) Edit form: setting Status to Completed/Validated on an AMC or Quality record now requires the module's due-date field (Next Service Due Date / Scheduled Date) to be filled in and not in the past — this was the direct route that created the 7 broken records, since Edit lets Status change with no other checks. (2) Validate & Close quick action: if the record's existing due date has already passed, the next-due-date field (auto-calculated from Frequency, previously optional — help text said 'leave blank to simply close') now must be set before the action can be confirmed; genuinely one-time items whose due date isn't yet stale can still be closed with the field left blank, unchanged. Neither check touches AMC/Quality records that are already in a consistent state — only blocks the specific move that would put one into the same contradiction found in the audit." },
   { v:"1.13.0", date:"2026-07-28", by:"Head (BOSSMANPOSH)", note:"Quality tab redesign + Head permissions. (1) '+ Add Activity' no longer opens one form with a nested Activity Type → Sub-Category → Sub-Type dropdown chain — it opens a category picker (Daily Housekeeping / Housekeeping (Fortnightly) / PCI / Plan a Training); picking a card pre-fills the record and hides the now-redundant category fields, so adding one activity is a single click plus the details that are actually unique to it. (2) PCI is now its own top-level Activity Type (previously only reachable as a Sub-Type buried under Frequency = Fortnightly on 'Fortnightly Housekeeping') — it gets its own section in the Quality Activities list, its own colour, and its own CSV template row. Existing records saved as Fortnightly Housekeeping + Sub-Type=PCI are untouched and still display correctly. (3) Fixed a bug the redesign would otherwise have hit: Sub-Type was being force-defaulted to 'Housekeeping' for ANY Fortnightly-frequency Quality record (Add form and CSV bulk-import) — it's now only auto-set for the 'Fortnightly Housekeeping' activity type specifically, so new PCI/Training records never get mislabelled. (4) Head is now a true super-admin: previously Head was grouped with read-only roles (Viewer/RDM/CFA Owner/Company View) for the maker-checker workflow and was excluded from Training Matrix management, meaning Head could add/edit/delete AMC, Licence and Quality records but couldn't Submit Evidence, Validate, or manage the Training Matrix at all (no Add/Bulk Assign/Bulk Import, couldn't click a matrix cell). Head now has every permission in the app." },
   { v:"1.12.0", date:"2026-07-16", by:"Head (BOSSMANPOSH)", note:"Quality module + workflow upgrade. (1) Fortnightly Sub-Type: selecting Frequency = Fortnightly on a Quality activity now shows an 'Activity Sub-Type' dropdown (Housekeeping / PCI, extensible) — stored on the activity, shown as a chip in the list, and available as an optional Sub-Type column in the Quality bulk-upload CSV. (2) Quality alert window narrowed: Quality activities now alert only 3 days before and on the due date itself (previously 30/15/7/5/3/1), both in-app and in the daily email — AMC, Licences and Training thresholds are unchanged. (3) Workflow tabs: the AMC, Quality and Licences filter bars are now action-oriented stages with live counts — All / Pending / Awaiting Validation / Closed (Licences: All / Active / Awaiting Validation / Expired) — instead of a flat list of every raw status. (4) Quick actions: the primary action (Validate & Close, Submit Evidence, etc.) now appears directly on each collapsed row, so a Manager on the 'Awaiting Validation' tab can act without opening each record first. (5) Performance: app logo re-compressed (~54KB smaller file, ~24% less to download) and repeated label styles moved into shared CSS classes. No change to any existing workflow, permission or data." },
@@ -364,28 +365,23 @@ function unmapTraining(row){
 function mapDocument(id,d){
   return{"_docId":id,name:d.name||"Untitled",category:d.category||"Other",expiryDate:d.expiryDate||"",uploadedBy:d.uploadedBy||"",validatedBy:d.validatedBy||"",fileURL:d.fileURL||"",thumbURL:d.thumbURL||"",fileName:d.fileName||"",fileType:d.fileType||"",locationId:d.locationId||"",linkedRecordId:d.linkedRecordId||"",linkedSheet:d.linkedSheet||"",linkedName:d.linkedName||"",source:d.source||"manual",module:d.module||"",notes:d.notes||"",createdOn:d.createdOn||"",createdAtMs:(d.createdAt&&d.createdAt.toMillis)?d.createdAt.toMillis():(d.createdAtMs||0)};
 }
-/* [9] Deadline timeline helpers — effective deadline falls back to the record's natural due date. */
-function effDeadline(rec){
-  var dd=rec["Deadline"]||rec["Next Service Due Date"]||rec["Scheduled Date"]||"";
-  if(!dd&&String(rec["Expiry Date"]||"")!=="Lifetime")dd=rec["Expiry Date"]||"";
-  return dd;
-}
-function dlChip(rec){
-  var dd=effDeadline(rec);if(!dd)return null;
-  var n=daysUntil(dd);if(n===null)return null;
-  if(["Completed","Validated"].indexOf(String(rec["Status"]))>-1)return null;
-  if(n<0)return(<span style={{fontSize:10,color:"#fff",background:"#EF4444",padding:"1px 7px",borderRadius:8,fontWeight:700}}>{Math.abs(n)}d past deadline</span>);
-  if(n<=7)return(<span style={{fontSize:10,color:"#92400E",background:"#FEF3C7",padding:"1px 7px",borderRadius:8,fontWeight:700}}>deadline in {n}d</span>);
-  return null;
-}
-/* Activity RAG monitoring — escalation keyed off the DUE/compliance date (not the assignment date). */
+/* [Q5] 2026-07-29 — RAG chip fixed to stop contradicting the main status Badge. It used to
+        read effDeadline(), which silently falls back to Next Service Due Date / Scheduled Date
+        when Deadline is blank — the same field the Badge's smartStatus() already reads. That
+        meant most rows carried two independent labels computed from the same date, which could
+        (and did) disagree at the edges (rounding, "today" boundary, etc.) and always looked like
+        the app was showing two different opinions on one activity. Now: only reads the actual
+        Deadline field (a genuinely separate, optional target-completion date), only renders when
+        it's set AND actually urgent, and is labeled "Deadline …" so it reads as extra context
+        about that field specifically — never as a second, possibly-conflicting status. */
 function activityRAG(rec){
-  if(["Completed","Validated"].indexOf(String(rec["Status"]))>-1)return {label:"Complete",color:"#065F46",bg:"#D1FAE5"};
-  var n=daysUntil(effDeadline(rec));if(n===null)return null;
-  if(n<0)return {label:"Overdue",color:"#fff",bg:"#B91C1C"};
-  if(n<=2)return {label:"Critical",color:"#fff",bg:"#EF4444"};
-  if(n<=7)return {label:"Approaching",color:"#92400E",bg:"#FEF3C7"};
-  return {label:"On Track",color:"#065F46",bg:"#D1FAE5"};
+  if(["Completed","Validated"].indexOf(String(rec["Status"]))>-1)return null;
+  var dl=String(rec["Deadline"]||"").trim();if(!dl)return null;
+  var n=daysUntil(dl);if(n===null)return null;
+  if(n<0)return {label:"Deadline overdue",color:"#fff",bg:"#B91C1C"};
+  if(n<=2)return {label:"Deadline critical",color:"#fff",bg:"#EF4444"};
+  if(n<=7)return {label:"Deadline soon",color:"#92400E",bg:"#FEF3C7"};
+  return null;
 }
 function ragChip(rec){var r=activityRAG(rec);if(!r)return null;return(<span style={{fontSize:10,color:r.color,background:r.bg,padding:"1px 8px",borderRadius:8,fontWeight:700}}>{r.label}</span>);}
 function splitCSVLine(line){var out=[],cur="",inQ=false;for(var j=0;j<line.length;j++){var ch=line[j];if(inQ){if(ch==='"'){if(line[j+1]==='"'){cur+='"';j++;}else{inQ=false;}}else{cur+=ch;}}else{if(ch==='"'){inQ=true;}else if(ch===","){out.push(cur);cur="";}else{cur+=ch;}}}out.push(cur);return out;}
@@ -617,7 +613,7 @@ function EditModal(props){
     {k:"License No / Key",l:"Licence No / Key",t:"text"},{k:"Contact Person",l:"Contact Person",t:"text"},
     {k:"Contact No",l:"Contact No",t:"text"},{k:"Issue Year",l:"Issue Year",t:"text"},
     {k:"Expiry Date",l:"Expiry Date",t:"date",req:true},{k:"Renewal Due Date",l:"Renewal Due Date",t:"date"},
-    {k:"Status",l:"Status",t:"sel",o:["Active","Expired"]},{k:"Competent Person",l:"Competent Person",t:"text"},
+    {k:"Status",l:"Status",t:"sel",o:["Active","Submitted","Validated","Expired"]},{k:"Competent Person",l:"Competent Person",t:"text"},
     {k:"Assigned To",l:"Assigned To",t:"text"},{k:"Deadline",l:"Deadline",t:"date"},{k:"Remarks",l:"Remarks",t:"area"},
     {k:"Requires Breakup",l:"Include in Breakup register",t:"check"},
   ];
@@ -629,7 +625,7 @@ function EditModal(props){
     {k:"Frequency",l:"Frequency",t:"sel",o:["Daily","Weekly","Fortnightly","Monthly","Quarterly","Annual","One-Time"]},
     {k:"Sub-Type",l:"Activity Sub-Type",t:"sel",o:QUALITY_SUBTYPES,showIf:function(f){return String(f["Frequency"]||"")==="Fortnightly";}},
     {k:"Scheduled Date",l:"Scheduled Date",t:"date"},{k:"Deadline",l:"Deadline",t:"date"},{k:"Assigned To",l:"Assigned To",t:"text"},
-    {k:"Status",l:"Status",t:"sel",o:["Pending","Planned","Completed","Validated"]},
+    {k:"Status",l:"Status",t:"sel",o:["Pending","Planned","Submitted","Validated","Completed","Overdue"]},
   ];
   var fields=props.sheet==="AMC"?amcF:props.sheet==="Quality"?qualF:licF;
   var helpMap=props.sheet==="AMC"?amcHelp:props.sheet==="Quality"?qualHelp:licHelp;

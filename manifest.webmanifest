@@ -1,0 +1,16 @@
+{
+  "name": "Posh Compliance Tracker",
+  "short_name": "PCT",
+  "description": "Compliance tracking for Posh Enterprises hubs — AMC, licences, quality, training and legal cases.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#F0F8FF",
+  "theme_color": "#003865",
+  "icons": [
+    { "src": "/pct-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/pct-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/pct-icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
